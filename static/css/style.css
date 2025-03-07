@@ -1,0 +1,347 @@
+/* General resets */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Body styling with a mint radial gradient background */
+body {
+  height: 100vh;
+  background: radial-gradient(circle at center, #AAF0D1 0%, #e0fff5 100%);
+  font-family: sans-serif;
+}
+
+/* ----------------- Start Page Styles ----------------- */
+.start-container {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.start-container h1 {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+.start-container button {
+  font-size: 24px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background-color: #fff;
+  color: #333;
+  transition: background 0.2s ease;
+}
+.start-container button:hover {
+  background-color: #e0e0e0;
+}
+
+/* ----------------- Lobby Page Styles ----------------- */
+
+/* Scoreboard: fixed-width table with alternating row colors */
+.scoreboard {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(255,255,255,0.9);
+  border: 2px solid white;
+  padding: 0;
+  border-radius: 5px;
+  width: 300px;
+}
+.scoreboard table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.scoreboard tr {
+  height: 40px;
+}
+.scoreboard tr:nth-child(odd) {
+  background-color: rgba(46,139,87,0.8);
+}
+.scoreboard tr:nth-child(even) {
+  background-color: rgba(46,139,87,0.6);
+}
+.score-name {
+  width: 220px;
+  text-align: left;
+  font-family: monospace;
+  padding-left: 5px;
+  color: white;
+  border: 2px solid white;
+}
+.score-cell {
+  width: 80px;
+  position: relative;
+  border: 2px solid white;
+}
+.score-number {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: monospace;
+  color: white;
+  font-size: 24px;
+  transition: transform 0.5s ease;
+}
+@keyframes scorePop {
+  0% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(5); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
+.score-pop {
+  animation: scorePop 0.5s forwards;
+}
+
+/* Leader change animation for scoreboard */
+@keyframes leaderChange {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-20px) scale(1.2); }
+  100% { transform: translateY(0) scale(1); }
+}
+.leader-change {
+  animation: leaderChange 0.5s ease;
+}
+
+/* Wrapper */
+.wrapper {
+  position: relative;
+  height: 100vh;
+  width: 100%;
+}
+
+/* Game header */
+.game-header {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  text-align: center;
+}
+
+/* Word display: fixed area for word and fuse */
+.word-display {
+  font-size: 120px;
+  font-weight: bold;
+  color: white;
+  position: relative;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  opacity: 1;
+  min-height: 120px;
+}
+
+/* Fuse element inside word display */
+.fuse {
+  width: 80%;
+  height: 10px;
+  background-color: #90EE90;
+  margin: 10px auto 0;
+  animation: fuseAnim 30s linear forwards;
+}
+@keyframes fuseAnim {
+  from { width: 80%; background-color: #90EE90; }
+  to { width: 0%; background-color: #006400; }
+}
+
+/* Word transition animations */
+@keyframes flyOut {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(150%); opacity: 0; }
+}
+.word-fly-out {
+  animation: flyOut 0.4s forwards;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.word-fade-in {
+  animation: fadeIn 0.6s forwards;
+}
+@keyframes slideDown {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(100%); opacity: 0; }
+}
+.word-fade-down {
+  animation: slideDown 0.4s forwards;
+}
+
+/* Start Game button: styled like in-game word, no grey border */
+.start-game-button {
+  font-size: 120px;
+  font-weight: bold;
+  color: white;
+  background: transparent;
+  border: none;
+  padding: 20px 40px;
+  text-transform: uppercase;
+  -webkit-text-stroke: 0;
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.start-enabled {
+  opacity: 1;
+  pointer-events: auto;
+}
+.start-glow {
+  /* Soft green glow around text */
+  text-shadow: 0 0 10px green;
+}
+.start-game-button:hover {
+  transform: scale(1.05);
+}
+.guest-start {
+  font-size: 60px;
+  -webkit-text-stroke: 0;
+  color: white;
+  background: transparent;
+  opacity: 1 !important;
+}
+
+/* Combined settings: compact inline bar independent of .game-header */
+.combined-settings {
+  display: inline-block;
+  text-align: center;
+  background-color: rgba(255,255,255,0.9);
+  padding: 2px 4px;
+  border-radius: 5px;
+  margin: 10px auto;
+  width: auto;
+}
+.combined-settings select,
+.combined-settings input,
+.combined-settings button {
+  font-size: 16px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  width: auto;
+  color: #333;
+  outline: none;
+  margin: 0 2px;
+}
+
+/* Ready button styles: toggle on/off with constant space and fixed height */
+.ready-not-ready,
+.ready-on {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border 0.2s ease;
+  color: #333;
+  height: 28px;
+}
+.ready-not-ready {
+  background-color: #ffcccc;
+  border: 1px solid transparent;
+}
+.ready-on {
+  background-color: rgba(144,238,144,0.5);
+  border: 2px solid green;
+}
+.ready-not-ready::before {
+  content: "✗";
+  margin-right: 4px;
+  color: red;
+  font-size: 16px;
+}
+.ready-on::before {
+  content: "✓";
+  margin-right: 4px;
+  color: green;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+/* Pass button styling */
+.pass-button {
+  font-size: 24px;
+  margin-left: 10px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  background-color: #ffdddd;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.pass-button:hover {
+  background-color: #ffcccc;
+}
+.pass-selected {
+  border: 2px solid rgba(0,128,0,0.5);
+}
+
+/* Ready status display: smaller font and white text */
+.ready-status {
+  font-size: 16px;
+  margin-top: 10px;
+  color: white;
+}
+
+/* Input container: fixed at bottom center */
+.input-container {
+  position: absolute;
+  bottom: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 2px solid #ccc;
+  border-radius: 25px;
+  padding: 20px 30px;
+  width: 900px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  z-index: 1;
+}
+.input-container input {
+  border: none;
+  outline: none;
+  flex: 1;
+  font-size: 24px;
+}
+.input-icon {
+  margin-left: 10px;
+  cursor: pointer;
+}
+.input-icon svg {
+  display: block;
+}
+
+/* Leader change animation for scoreboard */
+@keyframes leaderChange {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-20px) scale(1.2); }
+  100% { transform: translateY(0) scale(1); }
+}
+.leader-change {
+  animation: leaderChange 0.5s ease;
+}
+
+/* Home button styling in the top right corner */
+.home-button {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+}
+
+.home-button a {
+  text-decoration: none;
+  font-size: 36px;
+  color: white;
+}

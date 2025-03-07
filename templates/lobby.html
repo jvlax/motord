@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lobby - {{ lobby_id }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<!-- Home button (house icon) positioned in the top left corner -->
+<div class="home-button">
+    <a href="/">🏠</a>
+</div>
+
+<div class="wrapper">
+    <div class="game-header">
+        <div class="word-display">
+            <div id="wordText">
+                {% if player_id == host_id %}
+                <button id="startGameButton" class="start-game-button">Start Game</button>
+                {% else %}
+                <button id="startGameButton" class="start-game-button guest-start" disabled>Waiting for host to start</button>
+                {% endif %}
+            </div>
+            <!-- Fuse element -->
+            <div id="fuse" class="fuse" style="display:none;"></div>
+        </div>
+        <!-- Combined settings bar -->
+        <div class="combined-settings">
+            <select id="languageSelect">
+                <option value="sv">🦌 Svenska</option>
+                <option value="fr">🥐 Français</option>
+            </select>
+            <input type="text" id="playerName" placeholder="Your Name" maxlength="12">
+            {% if player_id == host_id %}
+            <select id="difficultySelect">
+                <option value="easy">Easy</option>
+                <option value="medium" selected>Medium</option>
+                <option value="hard">Hard</option>
+            </select>
+            {% endif %}
+            <button id="readyButton" class="ready-not-ready">Ready</button>
+        </div>
+        <div id="readyStatus" class="ready-status">0/0 players ready</div>
+    </div>
+    <div class="input-container">
+        <input type="text" placeholder="Type your guess...">
+        <span class="input-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24">
+          <path fill="#000000" d="M10,17L15,12L10,7V17Z"/>
+        </svg>
+      </span>
+        <button id="passButton" class="pass-button">Pass</button>
+    </div>
+    <div id="scoreboard" class="scoreboard" style="display:none;">
+        <table id="scoreTable"></table>
+    </div>
+</div>
+
+<script>
+    var LOBBY_ID = "{{ lobby_id }}";
+    var HOST_ID = "{{ host_id }}";
+    var PLAYER_ID = "{{ player_id }}";
+    window.isHost = (PLAYER_ID === HOST_ID);
+</script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
