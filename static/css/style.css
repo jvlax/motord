@@ -10,6 +10,7 @@ body {
   height: 100vh;
   background: radial-gradient(circle at center, #AAF0D1 0%, #e0fff5 100%);
   font-family: sans-serif;
+  overflow: hidden;
 }
 
 /* ----------------- Start Page Styles ----------------- */
