@@ -1,63 +1,59 @@
 from flask import Flask, render_template, redirect, url_for, request, jsonify, session
 from flask_cors import CORS
-import uuid, random, unicodedata, time
-import argparse
+import uuid, random, unicodedata, time, argparse, json
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 CORS(app)
 
-# Word bank: 10 easy words and 10 difficult words in English
-word_bank = {
-    "easy": ["apple", "banana", "cat", "dog", "house", "tree", "car", "book", "sun", "water"],
-    "difficult": ["quintessence", "obfuscate", "antediluvian", "incongruous", "ephemeral", "labyrinth", "serendipity", "plethora", "mellifluous", "paradigm"]
-}
-
-# Translations mapping: English word -> { "sv": Swedish translation, "fr": French translation }
-translations = {
-    "apple": {"sv": "äpple", "fr": "pomme"},
-    "banana": {"sv": "banan", "fr": "banane"},
-    "cat": {"sv": "katt", "fr": "chat"},
-    "dog": {"sv": "hund", "fr": "chien"},
-    "house": {"sv": "hus", "fr": "maison"},
-    "tree": {"sv": "träd", "fr": "arbre"},
-    "car": {"sv": "bil", "fr": "voiture"},
-    "book": {"sv": "bok", "fr": "livre"},
-    "sun": {"sv": "sol", "fr": "soleil"},
-    "water": {"sv": "vatten", "fr": "eau"},
-    "quintessence": {"sv": "kvintessens", "fr": "quintessence"},
-    "obfuscate": {"sv": "formorka", "fr": "obscurcir"},
-    "antediluvian": {"sv": "forhistorisk", "fr": "antediluvien"},
-    "incongruous": {"sv": "inkongruent", "fr": "incongru"},
-    "ephemeral": {"sv": "flyktig", "fr": "éphémère"},
-    "labyrinth": {"sv": "labyrint", "fr": "labyrinthe"},
-    "serendipity": {"sv": "tur", "fr": "serendipité"},
-    "plethora": {"sv": "överflöd", "fr": "pléthore"},
-    "mellifluous": {"sv": "lättflytande", "fr": "melliflu"},
-    "paradigm": {"sv": "paradigm", "fr": "paradigme"}
-}
+# Load the curated wordlist from a JSON Lines file.
+# Place the curated file in a folder "wordlists" at the project root.
+WORDLIST = []
+try:
+    with open("wordlists/wordlist.json", "r", encoding="utf-8") as f:
+        # Each line should be a JSON object
+        WORDLIST = [json.loads(line) for line in f if line.strip()]
+    if not WORDLIST:
+        print("Warning: WORDLIST is empty.")
+except Exception as e:
+    print("Error loading wordlist:", e)
 
 def normalize_text(text):
     text = text.lower()
     text = unicodedata.normalize('NFD', text)
     return ''.join(c for c in text if unicodedata.category(c) != 'Mn')
 
-def get_new_word(current_word, difficulty):
-    if difficulty == "easy":
-        all_words = word_bank["easy"]
-    elif difficulty == "hard":
-        all_words = word_bank["difficult"]
+def get_new_word(current_word, lobby_difficulty):
+    """
+    Choose a new word entry from WORDLIST using weighted random selection
+    based on the lobby's difficulty setting.
+
+    lobby_difficulty is expected to be one of "easy", "medium", "hard".
+    Since the wordlist is curated, we no longer filter out proper names here.
+    """
+    if lobby_difficulty == "easy":
+        weight_map = {1: 8, 2: 6, 3: 3, 4: 1, 5: 0.2}
+    elif lobby_difficulty == "medium":
+        weight_map = {1: 1, 2: 2, 3: 4, 4: 2, 5: 1}
+    elif lobby_difficulty == "hard":
+        weight_map = {1: 0.5, 2: 1, 3: 2, 4: 4, 5: 5}
     else:
-        all_words = word_bank["easy"] + word_bank["difficult"]
-    new_word = random.choice(all_words)
-    while current_word is not None and new_word == current_word:
-        new_word = random.choice(all_words)
-    return new_word
+        weight_map = {1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
+
+    # Exclude the current word.
+    candidates = [entry for entry in WORDLIST if entry["word"].lower() != (current_word or "").lower()]
+    if not candidates:
+        return None
+
+    weights = [weight_map.get(entry.get("difficulty", 3), 1) for entry in candidates]
+    chosen = random.choices(candidates, weights=weights, k=1)[0]
+    return chosen
 
 # In-memory storage for lobbies.
 # Each lobby: { "players": { player_id: {name, ready, language, score} },
-#                "current_word": None, "difficulty": <"easy"|"medium"|"hard">,
-#                "host": <player_id>, "word_start_time": <timestamp>, "passes": set() }
+#                "current_word": <string>, "current_entry": <wordlist entry>,
+#                "difficulty": <"easy"|"medium"|"hard">,
+#                "host": <player_id>, "passes": set() }
 lobbies = {}
 
 def get_player_id():
@@ -75,6 +71,7 @@ def create_lobby():
     lobbies[lobby_id] = {
         "players": {},
         "current_word": None,
+        "current_entry": None,
         "difficulty": "medium",
         "host": session["player_id"],
         "passes": set()
@@ -133,14 +130,20 @@ def pass_word(lobby_id):
         lobby["passes"] = set()
     lobby["passes"].add(player_id)
     if len(lobby["passes"]) == len(lobby["players"]):
-        new_word = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
-        lobby["current_word"] = new_word
+        new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
+        if new_entry is None:
+            return jsonify({"error": "No new word available"}), 500
+        lobby["current_entry"] = new_entry
+        lobby["current_word"] = new_entry["word"]
         lobby["word_start_time"] = time.time()
         lobby["passes"] = set()
         return jsonify({
             "passed": True,
-            "new_word": new_word,
-            "translations": translations[new_word],
+            "new_word": new_entry["word"],
+            "translations": {
+                "sv": new_entry["translation_sw"],
+                "fr": new_entry["translation_fr"]
+            },
             "players": lobby["players"]
         })
     else:
@@ -170,14 +173,23 @@ def lobby_status(lobby_id):
         remaining = max(0, 30 - elapsed)
         response["time_remaining"] = remaining
         if remaining == 0:
-            new_word = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
-            lobby["current_word"] = new_word
-            lobby["word_start_time"] = time.time()
-            lobby["passes"] = set()
-            response["current_word"] = new_word
-            response["translations"] = translations[new_word]
+            new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
+            if new_entry is not None:
+                lobby["current_entry"] = new_entry
+                lobby["current_word"] = new_entry["word"]
+                lobby["word_start_time"] = time.time()
+                lobby["passes"] = set()
+                response["current_word"] = new_entry["word"]
+                response["translations"] = {
+                    "sv": new_entry["translation_sw"],
+                    "fr": new_entry["translation_fr"]
+                }
     if lobby.get("current_word"):
-        response.setdefault("translations", translations[lobby["current_word"]])
+        if "translations" not in response and lobby.get("current_entry"):
+            response["translations"] = {
+                "sv": lobby["current_entry"]["translation_sw"],
+                "fr": lobby["current_entry"]["translation_fr"]
+            }
     return jsonify(response)
 
 @app.route('/start_game/<lobby_id>', methods=['POST'])
@@ -188,14 +200,20 @@ def start_game(lobby_id):
     players = lobby.get("players", {})
     if players and any(not p.get("ready") for p in players.values()):
         return jsonify({"error": "Not all players are ready"}), 400
-    new_word = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
-    lobby["current_word"] = new_word
+    new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
+    if new_entry is None:
+        return jsonify({"error": "No new word available"}), 500
+    lobby["current_entry"] = new_entry
+    lobby["current_word"] = new_entry["word"]
     lobby["word_start_time"] = time.time()
     lobby["passes"] = set()
-    print(f"Lobby {lobby_id} started game with word: {new_word}")
+    print(f"Lobby {lobby_id} started game with word: {new_entry['word']}")
     return jsonify({
-        "current_word": new_word,
-        "translations": translations[new_word],
+        "current_word": new_entry["word"],
+        "translations": {
+            "sv": new_entry["translation_sw"],
+            "fr": new_entry["translation_fr"]
+        },
         "players": players
     })
 
@@ -215,22 +233,33 @@ def guess(lobby_id):
         return jsonify({"error": "Game not started"}), 400
     player = lobby["players"][player_id]
     player_language = player.get("language", "sv")
+    if not lobby.get("current_entry"):
+        return jsonify({"error": "Current word entry missing"}), 400
+    current_entry = lobby["current_entry"]
+    # If player's language is Swedish, they see the Swedish word and must type the French translation.
+    # Otherwise, they see the French word and must type the Swedish translation.
     if player_language == "sv":
-        correct_answer = translations[current_word]["fr"]
+        correct_answer = current_entry["translation_fr"]
     else:
-        correct_answer = translations[current_word]["sv"]
+        correct_answer = current_entry["translation_sw"]
     normalized_correct = normalize_text(correct_answer)
     if normalized_guess == normalized_correct:
         player["score"] += 1
-        new_word = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
-        lobby["current_word"] = new_word
+        new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
+        if new_entry is None:
+            return jsonify({"error": "No new word available"}), 500
+        lobby["current_entry"] = new_entry
+        lobby["current_word"] = new_entry["word"]
         lobby["word_start_time"] = time.time()
         lobby["passes"] = set()
         return jsonify({
             "correct": True,
             "guesser": player_id,
-            "new_word": new_word,
-            "translations": translations[new_word],
+            "new_word": new_entry["word"],
+            "translations": {
+                "sv": new_entry["translation_sw"],
+                "fr": new_entry["translation_fr"]
+            },
             "players": lobby["players"]
         })
     else:
