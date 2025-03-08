@@ -25,28 +25,40 @@ def normalize_text(text):
 
 def get_new_word(current_word, lobby_difficulty):
     """
-    Choose a new word entry from WORDLIST using weighted random selection
-    based on the lobby's difficulty setting.
+    Choose a new word entry from WORDLIST based on the lobby's difficulty setting,
+    using a simple filter:
+      - "easy": only select words with difficulty 1.
+      - "medium": select words with difficulty 2 or 3.
+      - "hard": select words with difficulty 4 or 5.
 
-    lobby_difficulty is expected to be one of "easy", "medium", "hard".
-    Since the wordlist is curated, we no longer filter out proper names here.
+    Excludes the current word. If filtering yields no candidates, it falls back
+    to the entire WORDLIST (excluding the current word).
     """
+    # Define allowed difficulties for each lobby difficulty
     if lobby_difficulty == "easy":
-        weight_map = {1: 8, 2: 6, 3: 3, 4: 1, 5: 0.2}
+        allowed = {1}
     elif lobby_difficulty == "medium":
-        weight_map = {1: 1, 2: 2, 3: 4, 4: 2, 5: 1}
+        allowed = {2, 3}
     elif lobby_difficulty == "hard":
-        weight_map = {1: 0.5, 2: 1, 3: 2, 4: 4, 5: 5}
+        allowed = {4, 5}
     else:
-        weight_map = {1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
+        allowed = {1, 2, 3, 4, 5}
 
-    # Exclude the current word.
-    candidates = [entry for entry in WORDLIST if entry["word"].lower() != (current_word or "").lower()]
+    # Filter candidates to those whose numeric difficulty is in the allowed set,
+    # and exclude the current word.
+    candidates = [
+        entry for entry in WORDLIST
+        if entry["word"].lower() != (current_word or "").lower()
+           and entry.get("difficulty") in allowed
+    ]
+
+    # Fallback: if no candidate meets the allowed criteria, use all entries except the current word.
     if not candidates:
-        return None
+        candidates = [entry for entry in WORDLIST if entry["word"].lower() != (current_word or "").lower()]
+        if not candidates:
+            return None
 
-    weights = [weight_map.get(entry.get("difficulty", 3), 1) for entry in candidates]
-    chosen = random.choices(candidates, weights=weights, k=1)[0]
+    chosen = random.choice(candidates)
     return chosen
 
 # In-memory storage for lobbies.
