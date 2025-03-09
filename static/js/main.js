@@ -58,12 +58,12 @@ document.addEventListener('DOMContentLoaded', function() {
             inputField.classList.add('correct-flash');
             setTimeout(() => inputField.classList.remove('correct-flash'), 500);
             updateScoreboard(data.players);
-            // Save the new English word in currentWordGlobal
+            // Save the new word in currentWordGlobal
             currentWordGlobal = data.new_word;
             const newWordDisplay = data.translations[window.playerLanguage];
             console.log("Correct guess received. data.guesser:", data.guesser, "window.PLAYER_ID:", window.PLAYER_ID);
             animationInProgress = true;
-            // Branch: if the local player guessed correctly, use flyOut; otherwise, default fadeDown.
+            // Use flyOut if local player is the guesser; otherwise, default fadeDown.
             if (data.guesser && window.PLAYER_ID === data.guesser) {
               console.log("Local player is the guesser. Using flyOut animation.");
               wordText.classList.add('word-fly-out');
@@ -71,7 +71,6 @@ document.addEventListener('DOMContentLoaded', function() {
               setTimeout(() => {
                 wordText.classList.remove('word-fly-out');
                 wordText.textContent = " ";
-                // Wait 500ms before starting fade-in
                 setTimeout(() => {
                   wordText.classList.add('word-fade-in');
                   setTimeout(() => {
@@ -90,7 +89,6 @@ document.addEventListener('DOMContentLoaded', function() {
               setTimeout(() => {
                 wordText.classList.remove('word-fade-down');
                 wordText.textContent = " ";
-                // Wait 500ms before starting fade-in
                 setTimeout(() => {
                   wordText.classList.add('word-fade-in');
                   setTimeout(() => {
@@ -126,7 +124,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (data.passed) {
           const lang = window.playerLanguage;
           let newWordDisplay = data.translations[lang];
-          // Update current word (if provided)
           currentWordGlobal = data.new_word ? data.new_word : currentWordGlobal;
           wordText.textContent = newWordDisplay.toUpperCase();
           updateScoreboard(data.players);
@@ -147,58 +144,47 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     const language = document.getElementById('languageSelect').value;
     window.playerLanguage = language;
-    if (!userReady) {
-      if (window.isHost) {
-        fetch(`/set_difficulty/${LOBBY_ID}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ difficulty: document.getElementById('difficultySelect').value })
-        })
-        .then(() => {
-          return fetch(`/set_ready/${LOBBY_ID}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ready: true, name: playerName, language: language })
-          });
-        })
-        .then(response => response.json())
-        .then(data => {
-          readyButton.classList.remove('ready-not-ready');
-          readyButton.classList.add('ready-on');
-          userReady = true;
-          window.playerName = playerName;
-          console.log("Ready toggled ON for host");
-        })
-        .catch(error => console.error("Error:", error));
-      } else {
-        fetch(`/set_ready/${LOBBY_ID}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ready: true, name: playerName, language: language })
-        })
-        .then(response => response.json())
-        .then(data => {
-          readyButton.classList.remove('ready-not-ready');
-          readyButton.classList.add('ready-on');
-          userReady = true;
-          window.playerName = playerName;
-          console.log("Ready toggled ON for guest");
-        })
-        .catch(error => console.error("Error:", error));
+    // For the host, also include maxScore from the input field.
+    let payload = { ready: true, name: playerName, language: language };
+    if (window.isHost) {
+      const maxScoreVal = document.getElementById('maxScoreInput').value;
+      if (maxScoreVal) {
+        payload.max_score = parseInt(maxScoreVal, 10);
       }
+      fetch(`/set_difficulty/${LOBBY_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ difficulty: document.getElementById('difficultySelect').value })
+      })
+      .then(() => {
+        return fetch(`/set_ready/${LOBBY_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      })
+      .then(response => response.json())
+      .then(data => {
+        readyButton.classList.remove('ready-not-ready');
+        readyButton.classList.add('ready-on');
+        userReady = true;
+        window.playerName = playerName;
+        console.log("Ready toggled ON for host");
+      })
+      .catch(error => console.error("Error:", error));
     } else {
       fetch(`/set_ready/${LOBBY_ID}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ready: false, name: playerName, language: language })
+        body: JSON.stringify(payload)
       })
       .then(response => response.json())
       .then(data => {
-        readyButton.classList.remove('ready-on');
-        readyButton.classList.add('ready-not-ready');
-        userReady = false;
+        readyButton.classList.remove('ready-not-ready');
+        readyButton.classList.add('ready-on');
+        userReady = true;
         window.playerName = playerName;
-        console.log("Ready toggled OFF");
+        console.log("Ready toggled ON for guest");
       })
       .catch(error => console.error("Error:", error));
     }
@@ -239,6 +225,15 @@ document.addEventListener('DOMContentLoaded', function() {
       fetch(`/lobby_status/${LOBBY_ID}`)
         .then(response => response.json())
         .then(data => {
+          // Check for game over and winner declaration
+          if (data.game_over) {
+            document.getElementById('winnerDiv').style.display = 'block';
+            document.getElementById('winnerName').textContent = data.winner;
+            // Optionally, disable input field and pass button
+            inputField.disabled = true;
+            passButton.disabled = true;
+            return; // Stop further updates
+          }
           const readyStatus = document.getElementById('readyStatus');
           readyStatus.textContent = data.ready_count + "/" + data.total_count + " players ready";
           if (data.total_count > 0 && data.ready_count === data.total_count) {
@@ -252,7 +247,6 @@ document.addEventListener('DOMContentLoaded', function() {
           }
           if (data.current_word && data.translations) {
             gameStarted = true;
-            // Only run animation if the server's current word is different from our stored value.
             if (currentWordGlobal !== data.current_word) {
               currentWordGlobal = data.current_word;
               resetTimer();

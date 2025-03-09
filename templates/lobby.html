@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-<!-- Home button (house icon) positioned in the top left corner -->
+<!-- Home button (house icon) positioned in the top right corner -->
 <div class="home-button">
     <a href="/">🏠</a>
 </div>
@@ -39,6 +39,7 @@
                 <option value="medium" selected>Medium</option>
                 <option value="hard">Hard</option>
             </select>
+            <input type="number" id="maxScoreInput" placeholder="Max Score" min="1">
             {% endif %}
             <button id="readyButton" class="ready-not-ready">Ready</button>
         </div>
@@ -47,14 +48,19 @@
     <div class="input-container">
         <input type="text" placeholder="Type your guess...">
         <span class="input-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24">
-          <path fill="#000000" d="M10,17L15,12L10,7V17Z"/>
-        </svg>
-      </span>
+            <svg width="20" height="20" viewBox="0 0 24 24">
+              <path fill="#000000" d="M10,17L15,12L10,7V17Z"/>
+            </svg>
+        </span>
         <button id="passButton" class="pass-button">Pass</button>
     </div>
     <div id="scoreboard" class="scoreboard" style="display:none;">
         <table id="scoreTable"></table>
+    </div>
+    <!-- Winner declaration div (hidden by default) -->
+    <div id="winnerDiv" class="winner" style="display:none;">
+        <h1 id="winnerName"></h1>
+        <p>is the winner!</p>
     </div>
 </div>
 

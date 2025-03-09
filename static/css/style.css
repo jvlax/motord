@@ -346,3 +346,27 @@ body {
   font-size: 36px;
   color: white;
 }
+
+/* Winner declaration styling */
+.winner {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40%;
+  min-height: 60vh; /* Expanded vertically */
+  background: rgba(170, 240, 209, 0.95); /* Minty background */
+  color: white; /* White font */
+  text-align: center;
+  padding: 60px 20px; /* Extra vertical padding */
+  border: 4px solid white;
+  border-radius: 10px;
+  z-index: 3000;
+}
+.winner h1 {
+  font-size: 5rem;
+  margin-bottom: 20px;
+}
+.winner p {
+  font-size: 3rem;
+}

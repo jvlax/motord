@@ -27,14 +27,12 @@ def get_new_word(current_word, lobby_difficulty):
     """
     Choose a new word entry from WORDLIST based on the lobby's difficulty setting,
     using a simple filter:
+      - "very easy": only select words with difficulty 0.
       - "easy": only select words with difficulty 1.
       - "medium": select words with difficulty 2 or 3.
       - "hard": select words with difficulty 4 or 5.
-
-    Excludes the current word. If filtering yields no candidates, it falls back
-    to the entire WORDLIST (excluding the current word).
+    Excludes the current word. If filtering yields no candidates, falls back to the entire WORDLIST (excluding the current word).
     """
-    # Define allowed difficulties for each lobby difficulty
     if lobby_difficulty == "very easy":
         allowed = {0}
     elif lobby_difficulty == "easy":
@@ -46,15 +44,11 @@ def get_new_word(current_word, lobby_difficulty):
     else:
         allowed = {1, 2, 3, 4, 5}
 
-    # Filter candidates to those whose numeric difficulty is in the allowed set,
-    # and exclude the current word.
     candidates = [
         entry for entry in WORDLIST
         if entry["word"].lower() != (current_word or "").lower()
            and entry.get("difficulty") in allowed
     ]
-
-    # Fallback: if no candidate meets the allowed criteria, use all entries except the current word.
     if not candidates:
         candidates = [entry for entry in WORDLIST if entry["word"].lower() != (current_word or "").lower()]
         if not candidates:
@@ -66,7 +60,8 @@ def get_new_word(current_word, lobby_difficulty):
 # In-memory storage for lobbies.
 # Each lobby: { "players": { player_id: {name, ready, language, score} },
 #                "current_word": <string>, "current_entry": <wordlist entry>,
-#                "difficulty": <"easy"|"medium"|"hard">,
+#                "difficulty": <"very easy"|"easy"|"medium"|"hard">,
+#                "max_score": <int>, "game_over": <bool>, "winner": <string>,
 #                "host": <player_id>, "passes": set() }
 lobbies = {}
 
@@ -87,6 +82,9 @@ def create_lobby():
         "current_word": None,
         "current_entry": None,
         "difficulty": "medium",
+        "max_score": None,
+        "game_over": False,
+        "winner": None,
         "host": session["player_id"],
         "passes": set()
     }
@@ -118,7 +116,15 @@ def set_ready(lobby_id):
     lobby = lobbies[lobby_id]
     prev_score = lobby["players"].get(player_id, {}).get("score", 0)
     lobby["players"][player_id] = {"name": name, "ready": ready, "language": language, "score": prev_score}
-    return jsonify({"status": "ok", "players": lobby["players"]})
+    # If the current user is the host, also update max_score if provided.
+    if player_id == lobby["host"]:
+        max_score = data.get("max_score")
+        if max_score is not None:
+            try:
+                lobby["max_score"] = int(max_score)
+            except ValueError:
+                pass
+    return jsonify({"status": "ok", "players": lobby["players"], "max_score": lobby.get("max_score")})
 
 @app.route('/set_difficulty/<lobby_id>', methods=['POST'])
 def set_difficulty(lobby_id):
@@ -137,6 +143,8 @@ def pass_word(lobby_id):
     if lobby_id not in lobbies:
         return jsonify({"error": "Lobby not found"}), 404
     lobby = lobbies[lobby_id]
+    if lobby.get("game_over"):
+        return jsonify({"error": "Game is over", "winner": lobby.get("winner")}), 400
     player_id = get_player_id()
     if not player_id or player_id not in lobby["players"]:
         return jsonify({"error": "Player not identified"}), 400
@@ -182,7 +190,10 @@ def lobby_status(lobby_id):
         "difficulty": lobby.get("difficulty", "medium"),
         "host": lobby.get("host")
     }
-    if lobby.get("current_word") and "word_start_time" in lobby:
+    if lobby.get("game_over"):
+        response["game_over"] = True
+        response["winner"] = lobby.get("winner")
+    elif lobby.get("current_word") and "word_start_time" in lobby:
         elapsed = time.time() - lobby["word_start_time"]
         remaining = max(0, 30 - elapsed)
         response["time_remaining"] = remaining
@@ -236,6 +247,8 @@ def guess(lobby_id):
     if lobby_id not in lobbies:
         return jsonify({"error": "Lobby not found"}), 404
     lobby = lobbies[lobby_id]
+    if lobby.get("game_over"):
+        return jsonify({"error": "Game is over", "winner": lobby.get("winner")}), 400
     player_id = get_player_id()
     if not player_id or player_id not in lobby["players"]:
         return jsonify({"error": "Player not identified"}), 400
@@ -259,6 +272,18 @@ def guess(lobby_id):
     normalized_correct = normalize_text(correct_answer)
     if normalized_guess == normalized_correct:
         player["score"] += 1
+        # Check if player's score has reached max_score (if set)
+        max_score = lobby.get("max_score")
+        if max_score and player["score"] >= max_score:
+            lobby["game_over"] = True
+            winner = player["name"] if player["name"] else player_id
+            lobby["winner"] = winner
+            return jsonify({
+                "correct": True,
+                "game_over": True,
+                "winner": winner,
+                "players": lobby["players"]
+            })
         new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
         if new_entry is None:
             return jsonify({"error": "No new word available"}), 500
