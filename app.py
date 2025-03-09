@@ -35,7 +35,9 @@ def get_new_word(current_word, lobby_difficulty):
     to the entire WORDLIST (excluding the current word).
     """
     # Define allowed difficulties for each lobby difficulty
-    if lobby_difficulty == "easy":
+    if lobby_difficulty == "very easy":
+        allowed = {0}
+    elif lobby_difficulty == "easy":
         allowed = {1}
     elif lobby_difficulty == "medium":
         allowed = {2, 3}
@@ -124,7 +126,7 @@ def set_difficulty(lobby_id):
         return jsonify({"error": "Lobby not found"}), 404
     data = request.get_json()
     difficulty = data.get("difficulty", "medium")
-    if difficulty not in ["easy", "medium", "hard"]:
+    if difficulty not in ["very easy", "easy", "medium", "hard"]:
         return jsonify({"error": "Invalid difficulty"}), 400
     lobby = lobbies[lobby_id]
     lobby["difficulty"] = difficulty
