@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Translation Help</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/translation_help.css') }}">
+</head>
+<body>
+<div class="home-button">
+    <a href="/">🏠</a>
+</div>
+<div class="translation-help-container">
+    <h1>Translation Help</h1>
+    <!-- Composite bar for target language and Get Word button -->
+    <div class="composite-bar">
+        <select id="languageSelect" class="composite-dropdown">
+            <option value="" disabled selected>Select Language</option>
+            <option value="sv">Swedish</option>
+            <option value="fr">French</option>
+            <option value="es">Spanish</option>
+            <option value="de">German</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ru">Russian</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+        </select>
+        <button id="getWordButton" class="composite-button">Get Word</button>
+    </div>
+    <!-- Word container: displays the English word and translation with a centered vertical bar -->
+    <div id="wordContainer" class="word-container centered">
+        <span id="englishWord" class="english-word"></span>
+        <span id="separator" class="separator" style="display:none;">|</span>
+        <span id="translatedWord" class="translated-word"></span>
+    </div>
+
+    <!-- Composite bar for difficulty and Nonsense button -->
+    <div class="composite-bar difficulty-composite">
+        <select id="difficultySelect" class="composite-dropdown">
+            <option value="" disabled selected>Difficulty</option>
+            <option value="0">Very Easy (0)</option>
+            <option value="1">Easy (1)</option>
+            <option value="2">Medium (2)</option>
+            <option value="3">Medium (3)</option>
+            <option value="4">Hard (4)</option>
+            <option value="5">Hard (5)</option>
+        </select>
+        <button id="nonsenseButton" class="composite-button">Nonsense</button>
+    </div>
+    <!-- Slim input container for entering a new translation -->
+    <div class="input-container">
+        <input type="text" id="translationInput" placeholder="Enter translation..." />
+        <button id="submitTranslationButton" title="Submit Translation"></button>
+    </div>
+    <div id="submissionStatus" class="submission-status"></div>
+</div>
+<script src="{{ url_for('static', filename='js/translation_help.js') }}"></script>
+</body>
+</html>

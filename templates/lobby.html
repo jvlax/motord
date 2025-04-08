@@ -4,7 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lobby - {{ lobby_id }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ range(1000, 9999) | random }}" onload="console.log('CSS loaded successfully')" onerror="console.error('CSS failed to load')">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        // Debug logging for CSS
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM fully loaded');
+            console.log('CSS link element:', document.querySelector('link[rel="stylesheet"]'));
+            console.log('CSS href:', document.querySelector('link[rel="stylesheet"]').href);
+            
+            // Check if CSS is applied
+            const playAgainSection = document.getElementById('playAgainSection');
+            if (playAgainSection) {
+                const computedStyle = window.getComputedStyle(playAgainSection);
+                console.log('Play Again Section computed style:', {
+                    backgroundColor: computedStyle.backgroundColor,
+                    display: computedStyle.display,
+                    visibility: computedStyle.visibility
+                });
+            }
+        });
+    </script>
 </head>
 <body>
 <!-- Home button (house icon) positioned in the top right corner -->
@@ -58,9 +78,29 @@
         <table id="scoreTable"></table>
     </div>
     <!-- Winner declaration div (hidden by default) -->
-    <div id="winnerDiv" class="winner" style="display:none;">
-        <h1 id="winnerName"></h1>
-        <p>is the winner!</p>
+    <div id="winnerDiv" class="winner-popup" style="display: none;">
+        <div class="winner-announcement">
+            <h1 id="winnerName"></h1>
+            <p class="winner-message">is the winner!</p>
+        </div>
+        <div class="game-stats">
+            <p>Final Score: <span id="finalScore"></span></p>
+        </div>
+        <div class="game-history">
+            <h2>Game History</h2>
+            <table id="historyTable">
+                <thead>
+                    <tr>
+                        <th>Word</th>
+                        <th>Swedish</th>
+                        <th>French</th>
+                        <th>Guessed By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -71,5 +111,6 @@
     window.isHost = (PLAYER_ID === HOST_ID);
 </script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/game.js') }}"></script>
 </body>
 </html>

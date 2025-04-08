@@ -1,0 +1,22 @@
+<div id="winnerPopup" class="popup" style="display: none;">
+    <div class="popup-content">
+        <h2 id="winnerMessage"></h2>
+        <div class="play-again-section">
+            <div class="play-again-settings">
+                <div id="playAgainReadyStatus">Waiting for host...</div>
+                <div id="hostControls" style="display: none;">
+                    <select id="playAgainDifficultySelect">
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                    <input type="number" id="playAgainMaxScoreInput" value="10" min="1" max="20">
+                    <button id="playAgainButton" disabled>Start New Game</button>
+                </div>
+                <div id="guestControls" style="display: none;">
+                    <button id="readyButton" class="ready-not-ready">Ready</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div> 
