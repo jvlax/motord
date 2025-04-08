@@ -1,3 +1,9 @@
 .idea
 helpers
 venv
+wordlists/wordlist_base.json
+wordlists/wordlist_kids.json
+wordlists/wordlist_name.json
+wordlists/wordlist_noname.json
+wordlists/wordlist_simple.json
+wordlists/wordlist-kids2.json
