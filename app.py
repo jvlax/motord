@@ -771,13 +771,12 @@ def handle_pass_word(data):
 
 @socketio.on('timeout_word')
 def handle_timeout_word(data):
-    print("\n=== HANDLING TIMEOUT WORD ===")
-    print(f"Data received: {data}")
-    
     room = data.get('room')
     if not room:
-        print("Missing room")
         return
+    
+    print("=== HANDLING TIMEOUT WORD ===")
+    print(f"Data received: {data}")
     
     if room not in lobbies:
         print(f"Room {room} not found")
@@ -793,36 +792,54 @@ def handle_timeout_word(data):
         print("Game is already over")
         return
     
-    # Add current word to history as not guessed
-    if lobby.get('current_entry'):
-        lobby['game_history'].append({
-            "word": lobby['current_word'],
-            "translations": {
-                "sv": lobby['current_entry']['translation_sv'],
-                "fr": lobby['current_entry']['translation_fr']
-            },
-            "guessed_by": None  # No one guessed it correctly
-        })
+    # Check if we're already processing a timeout
+    if lobby.get('processing_timeout'):
+        print("Already processing a timeout")
+        return
     
-    # Get new word
-    new_entry = get_new_word(lobby['current_word'], lobby['difficulty'])
-    if new_entry:
-        lobby['current_word'] = new_entry['word']
-        lobby['current_entry'] = new_entry
-        lobby['word_start_time'] = time.time()
-        lobby['passes'] = set()
+    # Set processing flag
+    lobby['processing_timeout'] = True
+    
+    try:
+        # Add current word to history as not guessed
+        if lobby.get('current_entry'):
+            lobby['game_history'].append({
+                "word": lobby['current_word'],
+                "translations": {
+                    "sv": lobby['current_entry']['translation_sv'],
+                    "fr": lobby['current_entry']['translation_fr']
+                },
+                "guessed_by": None  # No one guessed it correctly
+            })
         
-        # Broadcast new word and scores
-        emit('new_word', {
-            'word': new_entry['word'],
-            'translations': {
-                'sv': new_entry['translation_sv'],
-                'fr': new_entry['translation_fr']
-            },
-            'players': lobby['players']
-        }, room=room)
+        # Get new word
+        new_entry = get_new_word(lobby['current_word'], lobby['difficulty'])
+        if new_entry:
+            # Update game state
+            lobby['current_word'] = new_entry['word']
+            lobby['current_entry'] = new_entry
+            lobby['word_start_time'] = time.time()
+            lobby['passes'] = set()
+            
+            # Make the word fall down for all players
+            emit('word_fall_down', room=room)
+            
+            # Broadcast new word and scores
+            socketio.emit('new_word', {
+                'word': new_entry['word'],
+                'translations': {
+                    'sv': new_entry['translation_sv'],
+                    'fr': new_entry['translation_fr']
+                },
+                'players': lobby['players']
+            }, room=room)
+            
+            print(f"New word set: {new_entry['word']}")
+    finally:
+        # Clear processing flag
+        lobby['processing_timeout'] = False
     
-    print("=== END HANDLING TIMEOUT WORD ===\n")
+    print("=== END HANDLING TIMEOUT WORD ===")
 
 @socketio.on('guess_word')
 def handle_guess_word(data):
