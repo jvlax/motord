@@ -78,6 +78,13 @@ socket.on('new_word', function(data) {
     window.pendingNewWord = data;
 });
 
+socket.on('update_scoreboard', function(data) {
+    console.log('Scoreboard update received:', data);
+    if (data.players) {
+        updateScoreboard(data.players);
+    }
+});
+
 socket.on('current_word', function(data) {
     console.log('Current word received:', data);
     // Only update if we're not in the middle of an animation
