@@ -1,22 +1,54 @@
-<div id="winnerPopup" class="popup" style="display: none;">
-    <div class="popup-content">
-        <h2 id="winnerMessage"></h2>
-        <div class="play-again-section">
-            <div class="play-again-settings">
-                <div id="playAgainReadyStatus">Waiting for host...</div>
-                <div id="hostControls" style="display: none;">
-                    <select id="playAgainDifficultySelect">
-                        <option value="easy">Easy</option>
-                        <option value="medium">Medium</option>
-                        <option value="hard">Hard</option>
-                    </select>
-                    <input type="number" id="playAgainMaxScoreInput" value="10" min="1" max="20">
-                    <button id="playAgainButton" disabled>Start New Game</button>
-                </div>
-                <div id="guestControls" style="display: none;">
-                    <button id="readyButton" class="ready-not-ready">Ready</button>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>motord</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/game.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body>
+    <div class="wrapper">
+        <div id="scoreboard" class="scoreboard"></div>
+        <div id="currentWord" class="word-display"></div>
+        <div class="countdown-bar">
+            <div class="countdown-progress"></div>
+        </div>
+
+        <div class="input-container">
+            <input type="text" id="guessInput" placeholder="Type your word...">
+            <button id="passButton" class="pass-button">Pass</button>
+        </div>
+    </div>
+
+    <div id="winnerPopup" class="popup" style="display: none;">
+        <div class="popup-content">
+            <h2 id="winnerMessage"></h2>
+            <div class="play-again-section">
+                <div class="play-again-settings">
+                    <div id="playAgainReadyStatus">Waiting for host...</div>
+                    <div id="hostControls" style="display: none;">
+                        <select id="playAgainDifficultySelect">
+                            <option value="easy">Easy</option>
+                            <option value="medium">Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                        <input type="number" id="playAgainMaxScoreInput" value="10" min="1" max="20">
+                        <button id="playAgainButton" disabled>Start New Game</button>
+                    </div>
+                    <div id="guestControls" style="display: none;">
+                        <button id="readyButton" class="ready-not-ready">Ready</button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-</div> 
+
+    <!-- Hidden fields for game state -->
+    <input type="hidden" id="roomId" value="{{ room_id }}">
+    <input type="hidden" id="playerId" value="{{ player_id }}">
+    <input type="hidden" id="isHost" value="{{ player_id == host_id }}">
+    <input type="hidden" id="playerLanguage" value="{{ player_language }}">
+    <input type="hidden" id="playerName" value="{{ player_name }}">
+
+    <script src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html> 
