@@ -822,7 +822,7 @@ def handle_timeout_word(data):
             lobby['passes'] = set()
             
             # Make the word fall down for all players
-            emit('word_fall_down', room=room)
+            socketio.emit('word_fall_down', room=room)
             
             # Broadcast new word and scores
             socketio.emit('new_word', {
@@ -831,6 +831,11 @@ def handle_timeout_word(data):
                     'sv': new_entry['translation_sv'],
                     'fr': new_entry['translation_fr']
                 },
+                'players': lobby['players']
+            }, room=room)
+            
+            # Update scoreboard
+            socketio.emit('update_scoreboard', {
                 'players': lobby['players']
             }, room=room)
             
@@ -866,7 +871,7 @@ def handle_guess_word(data):
     # Check if game is already over
     if lobby.get('game_over'):
         print("Game is already over")
-        emit('guess_result', {'correct': False, 'game_over': True})
+        socketio.emit('guess_result', {'correct': False, 'game_over': True})
         return
     
     current_word = lobby.get('current_word')
@@ -931,17 +936,17 @@ def handle_guess_word(data):
                 lobby['winner'] = lobby['players'][player_id]['name']
                 
                 # Broadcast game over
-                emit('game_over', {
+                socketio.emit('game_over', {
                     'winner': lobby['winner'],
                     'players': lobby['players'],
                     'game_history': lobby['game_history']
                 }, room=room)
                 
                 # Send guess result to the player
-                emit('guess_result', {'correct': True, 'game_over': True})
+                socketio.emit('guess_result', {'correct': True, 'game_over': True})
                 
                 # Broadcast updated scores
-                emit('score_update', {'players': lobby['players']}, room=room)
+                socketio.emit('update_scoreboard', {'players': lobby['players']}, room=room)
                 return  # End the game here
             
             # Get new word for next round
@@ -954,7 +959,7 @@ def handle_guess_word(data):
                 lobby['passes'] = set()
                 
                 # Broadcast new word and scores
-                emit('new_word', {
+                socketio.emit('new_word', {
                     'word': new_entry['word'],
                     'translations': {
                         'sv': new_entry['translation_sv'],
@@ -962,16 +967,19 @@ def handle_guess_word(data):
                     },
                     'players': lobby['players']
                 }, room=room)
+                
+                # Update scoreboard
+                socketio.emit('update_scoreboard', {'players': lobby['players']}, room=room)
     
     # Send guess result to the player
-    emit('guess_result', {'correct': is_correct})
+    socketio.emit('guess_result', {'correct': is_correct})
     
     # If guess was correct, make the word fall down for other players
     if is_correct:
-        emit('word_fall_down', room=room, skip_sid=request.sid)
+        socketio.emit('word_fall_down', room=room, skip_sid=request.sid)
     
     # Broadcast updated scores
-    emit('score_update', {'players': lobby['players']}, room=room)
+    socketio.emit('update_scoreboard', {'players': lobby['players']}, room=room)
     
     print("=== END HANDLING GUESS WORD ===\n")
 
