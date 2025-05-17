@@ -3,114 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lobby - {{ lobby_id }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ range(1000, 9999) | random }}" onload="console.log('CSS loaded successfully')" onerror="console.error('CSS failed to load')">
+    <title>Game Lobby</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-    <script>
-        // Debug logging for CSS
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM fully loaded');
-            console.log('CSS link element:', document.querySelector('link[rel="stylesheet"]'));
-            console.log('CSS href:', document.querySelector('link[rel="stylesheet"]').href);
-            
-            // Check if CSS is applied
-            const playAgainSection = document.getElementById('playAgainSection');
-            if (playAgainSection) {
-                const computedStyle = window.getComputedStyle(playAgainSection);
-                console.log('Play Again Section computed style:', {
-                    backgroundColor: computedStyle.backgroundColor,
-                    display: computedStyle.display,
-                    visibility: computedStyle.visibility
-                });
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
 </head>
 <body>
-<!-- Home button (house icon) positioned in the top right corner -->
-<div class="home-button">
-    <a href="/">🏠</a>
-</div>
-
-<div class="wrapper">
-    <div class="game-header">
-        <div class="word-display">
-            <div id="wordText">
-                {% if player_id == host_id %}
-                <button id="startGameButton" class="start-game-button">Start Game</button>
-                {% else %}
-                <button id="startGameButton" class="start-game-button guest-start" disabled>Waiting for host to start</button>
-                {% endif %}
+    <div class="lobby-container">
+        <!-- Player Setup Section -->
+        <div id="playerSetup" class="setup-section">
+            <div class="setup-form">
+                <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
+                <select id="languageSelect">
+                    <option value="sv">🫎 Svenska</option>
+                    <option value="fr">🥐 Français</option>
+                </select>
+                <button id="joinLobbyButton">{{ 'Join Game' if not is_host else 'Create Lobby' }}</button>
             </div>
-            <!-- Fuse element -->
-            <div id="fuse" class="fuse" style="display:none;"></div>
         </div>
-        <!-- Combined settings bar -->
-        <div class="combined-settings">
-            <select id="languageSelect">
-                <option value="sv">🫎 Svenska</option>
-                <option value="fr">🥐 Français</option>
-            </select>
-            <input type="text" id="playerName" placeholder="Your Name" maxlength="12">
-            {% if player_id == host_id %}
-            <select id="difficultySelect">
-                <option value="very easy">Very easy</option>
-                <option value="easy">Easy</option>
-                <option value="medium" selected>Medium</option>
-                <option value="hard">Hard</option>
-            </select>
-            <input type="number" id="maxScoreInput" placeholder="Max Score" min="1">
-            {% endif %}
-            <button id="readyButton" class="ready-not-ready">Ready</button>
-        </div>
-        <div id="readyStatus" class="ready-status">0/0 players ready</div>
-    </div>
-    <div class="input-container">
-        <input type="text" placeholder="Type your guess...">
-        <span class="input-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24">
-              <path fill="#000000" d="M10,17L15,12L10,7V17Z"/>
-            </svg>
-        </span>
-        <button id="passButton" class="pass-button">Pass</button>
-    </div>
-    <div id="scoreboard" class="scoreboard" style="display:none;">
-        <table id="scoreTable"></table>
-    </div>
-    <!-- Winner declaration div (hidden by default) -->
-    <div id="winnerDiv" class="winner-popup" style="display: none;">
-        <div class="winner-announcement">
-            <h1 id="winnerName"></h1>
-            <p class="winner-message">is the winner!</p>
-        </div>
-        <div class="game-stats">
-            <p>Final Score: <span id="finalScore"></span></p>
-        </div>
-        <div class="game-history">
-            <h2>Game History</h2>
-            <table id="historyTable">
-                <thead>
-                    <tr>
-                        <th>Word</th>
-                        <th>Swedish</th>
-                        <th>French</th>
-                        <th>Guessed By</th>
-                    </tr>
-                </thead>
-                <tbody>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
 
-<script>
-    var LOBBY_ID = "{{ lobby_id }}";
-    var HOST_ID = "{{ host_id }}";
-    var PLAYER_ID = "{{ player_id }}";
-    window.isHost = (PLAYER_ID === HOST_ID);
-</script>
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
-<script src="{{ url_for('static', filename='js/game.js') }}"></script>
+        <!-- Lobby Section -->
+        <div id="lobbySection" class="lobby-section" style="display: none;">
+            <div class="lobby-header">
+                <div class="lobby-info">
+                    <button id="copyRoomLink" class="copy-button">Copy Invite Link</button>
+                </div>
+            </div>
+
+            <div class="lobby-content">
+                <!-- Players List -->
+                <div class="players-section">
+                    <div id="playersList" class="players-list">
+                        <!-- Players will be added here dynamically -->
+                    </div>
+                    <div id="playerControls" class="player-controls" style="display: none;">
+                        <button id="readyButton" class="ready-button">Ready</button>
+                    </div>
+                </div>
+
+                <!-- Chat Section -->
+                <div class="chat-section">
+                    <div id="chatMessages" class="chat-messages">
+                        <!-- Chat messages will be added here -->
+                    </div>
+                    <div class="chat-input">
+                        <input type="text" id="chatInput" placeholder="Type a message...">
+                        <button id="sendMessage">Send</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Host Controls -->
+            <div id="hostControls" class="host-controls" style="display: none;">
+                <div class="game-settings">
+                    <select id="difficultySelect" class="form-control">
+                        <option value="very easy">Very Easy</option>
+                        <option value="easy">Easy</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                    <input type="number" id="maxScoreInput" class="form-control" placeholder="Max Score (1-100)" min="1" max="100" value="10">
+                    <button id="startGameButton" class="btn btn-primary start-game-button" disabled>Start Game</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

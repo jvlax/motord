@@ -6,24 +6,50 @@ import uuid, random, unicodedata, time, argparse, json
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, 
+    cors_allowed_origins="*",
+    ping_timeout=60,
+    ping_interval=25,
+    async_mode='threading',
+    logger=True,
+    engineio_logger=True,
+    max_http_buffer_size=1e8,
+    allow_upgrades=True,
+    http_compression=True,
+    compression_threshold=1024,
+    cookie=None,
+    always_connect=True
+)
 
 # Load the curated wordlist from a JSON Lines file.
 # Place the curated file in a folder "wordlists" at the project root.
 WORDLIST = []
 try:
+    print("Loading wordlist from wordlist.json...")
     with open("wordlists/wordlist.json", "r", encoding="utf-8") as f:
         # Each line should be a JSON object
         WORDLIST = [json.loads(line) for line in f if line.strip()]
+    print(f"Loaded {len(WORDLIST)} words from wordlist.json")
     if not WORDLIST:
         print("Warning: WORDLIST is empty.")
+    else:
+        # Print a sample of words to verify loading
+        print("Sample words from wordlist:")
+        for i in range(min(5, len(WORDLIST))):
+            print(f"  {WORDLIST[i]['word']} (difficulty: {WORDLIST[i].get('difficulty')})")
 except Exception as e:
     print("Error loading wordlist:", e)
 
 def normalize_text(text):
-    text = text.lower()
-    text = unicodedata.normalize('NFD', text)
-    return ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    """Normalize text by removing diacritics and special characters."""
+    if not text:
+        return ""
+    # First normalize to decomposed form (NFD)
+    text = unicodedata.normalize('NFD', text.lower())
+    # Remove diacritics (combining marks)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    # Remove any remaining special characters
+    return text.lower().encode('ascii', 'ignore').decode('ascii')
 
 def get_new_word(current_word, lobby_difficulty):
     """
@@ -35,6 +61,10 @@ def get_new_word(current_word, lobby_difficulty):
       - "hard": select words with difficulty 4 or 5.
     Excludes the current word. If filtering yields no candidates, falls back to the entire WORDLIST (excluding the current word).
     """
+    print(f"Getting new word with difficulty: {lobby_difficulty}")
+    print(f"Current word: {current_word}")
+    print(f"Total words in wordlist: {len(WORDLIST)}")
+    
     if lobby_difficulty == "very easy":
         allowed = {0}
     elif lobby_difficulty == "easy":
@@ -45,18 +75,27 @@ def get_new_word(current_word, lobby_difficulty):
         allowed = {4, 5}
     else:
         allowed = {1, 2, 3, 4, 5}
+    
+    print(f"Allowed difficulties: {allowed}")
 
     candidates = [
         entry for entry in WORDLIST
         if entry["word"].lower() != (current_word or "").lower()
            and entry.get("difficulty") in allowed
     ]
+    print(f"Found {len(candidates)} candidates with allowed difficulties")
+    
     if not candidates:
+        print("No candidates found with allowed difficulties, falling back to all words")
         candidates = [entry for entry in WORDLIST if entry["word"].lower() != (current_word or "").lower()]
+        print(f"Found {len(candidates)} candidates after falling back to all words")
         if not candidates:
+            print("No candidates found at all")
             return None
 
     chosen = random.choice(candidates)
+    print(f"Chosen word: {chosen['word']} with difficulty {chosen.get('difficulty')}")
+    print(f"Word entry: {chosen}")
     return chosen
 
 # In-memory storage for lobbies.
@@ -64,7 +103,7 @@ def get_new_word(current_word, lobby_difficulty):
 #                "current_word": <string>, "current_entry": <wordlist entry>,
 #                "difficulty": <"very easy"|"easy"|"medium"|"hard">,
 #                "max_score": <int>, "game_over": <bool>, "winner": <string>,
-#                "host": <player_id>, "passes": set(), "game_history": [] }
+#                "host": <player_id>, "passes": set(), "game_history": [], "game_started": <bool> }
 lobbies = {}
 
 def get_player_id():
@@ -76,23 +115,52 @@ def index():
 
 @app.route('/create_lobby', methods=['POST'])
 def create_lobby():
+    print("\n=== LOBBY CREATION REQUEST ===")
+    print(f"Request headers: {dict(request.headers)}")
+    print(f"Request content type: {request.content_type}")
+    
     session.clear()
-    session["player_id"] = "pid-" + uuid.uuid4().hex[:9]
+    player_id = "pid-" + uuid.uuid4().hex[:9]
+    session["player_id"] = player_id
     lobby_id = str(uuid.uuid4())[:8]
+    
+    print(f"Creating new lobby {lobby_id} with host {player_id}")
+    
+    # Initialize the lobby with the host player
     lobbies[lobby_id] = {
-        "players": {},
+        "players": {
+            player_id: {
+                "name": "",
+                "ready": False,
+                "language": "sv",
+                "score": 0
+            }
+        },
         "current_word": None,
         "current_entry": None,
         "difficulty": "medium",
         "max_score": None,
         "game_over": False,
         "winner": None,
-        "host": session["player_id"],
-        "ready_players": {session["player_id"]: False},
+        "host": player_id,
+        "ready_players": {player_id: False},
         "passes": set(),
-        "game_history": []  # List to store word history: [{word, translations, guessed_by}]
+        "game_history": [],
+        "game_started": False
     }
-    return redirect(url_for('lobby', lobby_id=lobby_id))
+    
+    print(f"Lobby state after creation:")
+    print(f"- Players: {lobbies[lobby_id]['players']}")
+    print(f"- Ready players: {lobbies[lobby_id]['ready_players']}")
+    print(f"- Total players: {len(lobbies[lobby_id]['players'])}")
+    print(f"- Ready count: {sum(1 for status in lobbies[lobby_id]['ready_players'].values() if status)}")
+    print("=== END LOBBY CREATION ===\n")
+    
+    return jsonify({
+        "room": lobby_id,
+        "player_id": player_id,
+        "is_host": True
+    })
 
 @app.route('/lobby/<lobby_id>')
 def lobby(lobby_id):
@@ -130,64 +198,6 @@ def set_ready(lobby_id):
                 pass
     return jsonify({"status": "ok", "players": lobby["players"], "max_score": lobby.get("max_score")})
 
-@app.route('/set_difficulty/<lobby_id>', methods=['POST'])
-def set_difficulty(lobby_id):
-    if lobby_id not in lobbies:
-        return jsonify({"error": "Lobby not found"}), 404
-    data = request.get_json()
-    difficulty = data.get("difficulty", "medium")
-    if difficulty not in ["very easy", "easy", "medium", "hard"]:
-        return jsonify({"error": "Invalid difficulty"}), 400
-    lobby = lobbies[lobby_id]
-    lobby["difficulty"] = difficulty
-    return jsonify({"status": "ok", "difficulty": difficulty})
-
-@app.route('/pass/<lobby_id>', methods=['POST'])
-def pass_word(lobby_id):
-    if lobby_id not in lobbies:
-        return jsonify({"error": "Lobby not found"}), 404
-    lobby = lobbies[lobby_id]
-    if lobby.get("game_over"):
-        return jsonify({"error": "Game is over", "winner": lobby.get("winner")}), 400
-    player_id = get_player_id()
-    if not player_id or player_id not in lobby["players"]:
-        return jsonify({"error": "Player not identified"}), 400
-    if "passes" not in lobby:
-        lobby["passes"] = set()
-    lobby["passes"].add(player_id)
-    if len(lobby["passes"]) == len(lobby["players"]):
-        # Add current word to history before getting new word
-        if lobby.get("current_entry"):
-            lobby["game_history"].append({
-                "word": lobby["current_word"],
-                "translations": {
-                    "sv": lobby["current_entry"]["translation_sw"],
-                    "fr": lobby["current_entry"]["translation_fr"]
-                },
-                "guessed_by": None  # No one guessed it correctly
-            })
-        new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
-        if new_entry is None:
-            return jsonify({"error": "No new word available"}), 500
-        lobby["current_entry"] = new_entry
-        lobby["current_word"] = new_entry["word"]
-        lobby["word_start_time"] = time.time()
-        lobby["passes"] = set()
-        return jsonify({
-            "passed": True,
-            "new_word": new_entry["word"],
-            "translations": {
-                "sv": new_entry["translation_sw"],
-                "fr": new_entry["translation_fr"]
-            },
-            "players": lobby["players"]
-        })
-    else:
-        return jsonify({
-            "passed": False,
-            "players": lobby["players"]
-        })
-
 @app.route('/lobby_status/<lobby_id>')
 def lobby_status(lobby_id):
     if lobby_id not in lobbies:
@@ -218,7 +228,7 @@ def lobby_status(lobby_id):
                 lobby["game_history"].append({
                     "word": lobby["current_word"],
                     "translations": {
-                        "sv": lobby["current_entry"]["translation_sw"],
+                        "sv": lobby["current_entry"]["translation_sv"],
                         "fr": lobby["current_entry"]["translation_fr"]
                     },
                     "guessed_by": None  # No one guessed it correctly
@@ -231,13 +241,13 @@ def lobby_status(lobby_id):
                 lobby["passes"] = set()
                 response["current_word"] = new_entry["word"]
                 response["translations"] = {
-                    "sv": new_entry["translation_sw"],
+                    "sv": new_entry["translation_sv"],
                     "fr": new_entry["translation_fr"]
                 }
     if lobby.get("current_word"):
         if "translations" not in response and lobby.get("current_entry"):
             response["translations"] = {
-                "sv": lobby["current_entry"]["translation_sw"],
+                "sv": lobby["current_entry"]["translation_sv"],
                 "fr": lobby["current_entry"]["translation_fr"]
             }
     return jsonify(response)
@@ -263,83 +273,11 @@ def start_game(lobby_id):
     return jsonify({
         "current_word": new_entry["word"],
         "translations": {
-            "sv": new_entry["translation_sw"],
+            "sv": new_entry["translation_sv"],
             "fr": new_entry["translation_fr"]
         },
         "players": players
     })
-
-@app.route('/guess/<lobby_id>', methods=['POST'])
-def guess(lobby_id):
-    if lobby_id not in lobbies:
-        return jsonify({"error": "Lobby not found"}), 404
-    lobby = lobbies[lobby_id]
-    if lobby.get("game_over"):
-        return jsonify({"error": "Game is over", "winner": lobby.get("winner")}), 400
-    player_id = get_player_id()
-    if not player_id or player_id not in lobby["players"]:
-        return jsonify({"error": "Player not identified"}), 400
-    data = request.get_json()
-    guess_text = data.get("guess", "")
-    normalized_guess = normalize_text(guess_text)
-    current_word = lobby.get("current_word")
-    if not current_word:
-        return jsonify({"error": "Game not started"}), 400
-    player = lobby["players"][player_id]
-    player_language = player.get("language", "sv")
-    if not lobby.get("current_entry"):
-        return jsonify({"error": "Current word entry missing"}), 400
-    current_entry = lobby["current_entry"]
-    # If player's language is Swedish, they see the Swedish word and must type the French translation.
-    # Otherwise, they see the French word and must type the Swedish translation.
-    if player_language == "sv":
-        correct_answer = current_entry["translation_fr"]
-    else:
-        correct_answer = current_entry["translation_sw"]
-    normalized_correct = normalize_text(correct_answer)
-    if normalized_guess == normalized_correct:
-        player["score"] += 1
-        # Add current word to history with the player who guessed it
-        lobby["game_history"].append({
-            "word": current_word,
-            "translations": {
-                "sv": current_entry["translation_sw"],
-                "fr": current_entry["translation_fr"]
-            },
-            "guessed_by": player["name"] if player["name"] else player_id
-        })
-        # Check if player's score has reached max_score (if set)
-        max_score = lobby.get("max_score")
-        if max_score and player["score"] >= max_score:
-            lobby["game_over"] = True
-            winner = player["name"] if player["name"] else player_id
-            lobby["winner"] = winner
-            return jsonify({
-                "correct": True,
-                "game_over": True,
-                "winner": winner,
-                "players": lobby["players"],
-                "game_history": lobby["game_history"]
-            })
-        new_entry = get_new_word(lobby.get("current_word"), lobby.get("difficulty", "medium"))
-        if new_entry is None:
-            return jsonify({"error": "No new word available"}), 500
-        lobby["current_entry"] = new_entry
-        lobby["current_word"] = new_entry["word"]
-        lobby["word_start_time"] = time.time()
-        lobby["passes"] = set()
-        return jsonify({
-            "correct": True,
-            "guesser": player_id,
-            "new_word": new_entry["word"],
-            "translations": {
-                "sv": new_entry["translation_sw"],
-                "fr": new_entry["translation_fr"]
-            },
-            "players": lobby["players"]
-        })
-    else:
-        return jsonify({"correct": False})
 
 @app.route('/play_again/<lobby_id>', methods=['POST'])
 def play_again(lobby_id):
@@ -362,7 +300,8 @@ def play_again(lobby_id):
         "host": current_lobby.get("host"),
         "ready_players": {current_lobby.get("host"): False},
         "passes": set(),
-        "game_history": []
+        "game_history": [],
+        "game_started": False
     }
     
     # Get the player data from the request
@@ -457,26 +396,124 @@ def submit_nonsense():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/game/<room_id>')
+def game(room_id):
+    print(f"\n=== HANDLING GAME ROUTE ===")
+    print(f"Room ID: {room_id}")
+    print(f"Session data: {session}")
+    
+    if room_id not in lobbies:
+        print(f"Room {room_id} not found")
+        return "Game not found", 404
+        
+    if "player_id" not in session:
+        print("No player ID in session")
+        return "Not logged in", 401
+        
+    player_id = session["player_id"]
+    lobby = lobbies[room_id]
+    
+    print(f"Player ID: {player_id}")
+    print(f"Lobby state: {lobby}")
+    print(f"Current players: {lobby['players']}")
+    print(f"Previous players: {lobby.get('previous_players', {})}")
+    
+    # Check if game has started
+    if not lobby.get('game_started'):
+        print("Game has not started")
+        return "Game has not started", 400
+        
+    # Get player data
+    player_data = None
+    if player_id in lobby["players"]:
+        print(f"Player {player_id} found in current players")
+        player_data = lobby["players"][player_id]
+    elif player_id in lobby.get("previous_players", {}):
+        print(f"Player {player_id} found in previous players, re-adding to game")
+        player_data = lobby["previous_players"][player_id]
+        # Re-add player to current players
+        lobby["players"][player_id] = player_data.copy()
+    
+    if not player_data:
+        print(f"Player {player_id} not found in game")
+        return "Not in game", 403
+    
+    return render_template('game.html', 
+                         room_id=room_id, 
+                         player_id=player_id, 
+                         host_id=lobby["host"],
+                         player_language=player_data["language"],
+                         player_name=player_data["name"],
+                         current_word=lobby.get('current_word'),
+                         translations=lobby.get('current_entry', {}).get('translations', {}))
+
 # Socket event handlers
 @socketio.on('join')
 def on_join(data):
     room = data.get('room')
-    player_id = request.sid
-    print(f"Server: Player {player_id} joining room {room}")
+    player_id = get_player_id()
+    if not player_id:
+        print("Server: Error - No player ID in session")
+        emit('error', {'message': 'No player ID in session'})
+        return
+        
+    print("\n=== PLAYER JOIN ===")
+    print(f"Player {player_id} joining room {room}")
     
     if room in lobbies:
         join_room(room)
+        
+        print(f"Lobby state before join:")
+        print(f"- Players: {lobbies[room]['players']}")
+        print(f"- Ready players: {lobbies[room]['ready_players']}")
+        print(f"- Total players: {len(lobbies[room]['players'])}")
+        print(f"- Ready count: {sum(1 for status in lobbies[room]['ready_players'].values() if status)}")
+        
+        # Initialize player data if not exists
+        if player_id not in lobbies[room]['players']:
+            lobbies[room]['players'][player_id] = {
+                "name": "",
+                "ready": False,
+                "language": "sv",
+                "score": 0
+            }
+            print(f"Added player {player_id} to players in room {room}")
+        
         # Add player to ready_players if not already there
         if player_id not in lobbies[room]['ready_players']:
             lobbies[room]['ready_players'][player_id] = False
-            print(f"Server: Added player {player_id} to ready_players in room {room}")
+            print(f"Added player {player_id} to ready_players in room {room}")
         
-        # Emit join confirmation
-        emit('user_joined', {
+        # Count ready players
+        ready_count = sum(1 for status in lobbies[room]['ready_players'].values() if status)
+        total_players = len(lobbies[room]['ready_players'])
+        
+        print(f"Lobby state after join:")
+        print(f"- Players: {lobbies[room]['players']}")
+        print(f"- Ready players: {lobbies[room]['ready_players']}")
+        print(f"- Total players: {total_players}")
+        print(f"- Ready count: {ready_count}")
+        
+        # Emit join confirmation with ready status
+        join_data = {
             'player_id': player_id,
+            'players': lobbies[room]['players'],
             'ready_players': lobbies[room]['ready_players'],
-            'total_players': len(lobbies[room]['ready_players'])
-        }, room=room)
+            'total_players': total_players,
+            'ready_count': ready_count
+        }
+        print(f"Emitting user_joined with data: {join_data}")
+        emit('user_joined', join_data, room=room)
+        
+        # Also emit player_ready_status to update the UI
+        ready_data = {
+            'ready_players': lobbies[room]['ready_players'],
+            'total_players': total_players,
+            'ready_count': ready_count
+        }
+        print(f"Emitting player_ready_status with data: {ready_data}")
+        emit('player_ready_status', ready_data, room=room)
+        print("=== END PLAYER JOIN ===\n")
     else:
         print(f"Server: Error - Room {room} not found")
         emit('error', {'message': 'Room not found'})
@@ -484,7 +521,12 @@ def on_join(data):
 @socketio.on('leave')
 def on_leave(data):
     room = data.get('room')
-    player_id = request.sid
+    player_id = get_player_id()
+    if not player_id:
+        print("Server: Error - No player ID in session")
+        emit('error', {'message': 'No player ID in session'})
+        return
+        
     print(f"Server: Player {player_id} leaving room {room}")
     
     if room in lobbies:
@@ -505,112 +547,649 @@ def on_leave(data):
 @socketio.on('player_ready')
 def handle_player_ready(data):
     room = data.get('room')
-    is_ready = data.get('is_ready', True)  # Default to True for backward compatibility
-    print(f"Server: Player ready event received for room {room}, is_ready: {is_ready}")
+    is_ready = data.get('is_ready', False)
+    player_id = get_player_id()
+    player_name = data.get('name', '')
+    language = data.get('language', 'sv')
+    
+    if not player_id:
+        print("Server: Error - No player ID in session")
+        emit('error', {'message': 'No player ID in session'})
+        return
+        
+    print(f"\n=== PLAYER READY EVENT ===")
+    print(f"Player {player_id} ready event received for room {room}, is_ready: {is_ready}")
     
     if room in lobbies:
-        player_id = request.sid
-        print(f"Server: Player {player_id} is ready in room {room}")
+        # Don't allow host to change ready status
+        if player_id == lobbies[room]['host']:
+            print(f"Server: Host {player_id} cannot change ready status")
+            return
+            
+        # Update player data
+        if player_id not in lobbies[room]['players']:
+            lobbies[room]['players'][player_id] = {
+                "name": player_name,
+                "ready": is_ready,
+                "language": language,
+                "score": 0
+            }
+        else:
+            lobbies[room]['players'][player_id].update({
+                "name": player_name,
+                "ready": is_ready,
+                "language": language
+            })
         
-        # Add player to ready_players if not already there
-        if player_id not in lobbies[room]['ready_players']:
-            lobbies[room]['ready_players'][player_id] = False
-            print(f"Server: Added player {player_id} to ready_players in room {room}")
+        # Update ready status
+        if player_id in lobbies[room]['ready_players']:
+            lobbies[room]['ready_players'][player_id] = is_ready
+            print(f"Server: Updated ready status for player {player_id} in room {room} to {is_ready}")
+            
+            # Count ready players (host is always counted as ready)
+            ready_count = sum(1 for pid, status in lobbies[room]['ready_players'].items() 
+                            if status or pid == lobbies[room]['host'])
+            total_players = len(lobbies[room]['ready_players'])
+            all_ready = ready_count == total_players and total_players > 0
+            
+            print(f"Server: Room {room} status - All ready: {all_ready}, Ready count: {ready_count}/{total_players}")
+            
+            # Emit updated ready status to all players in the room
+            ready_data = {
+                'room': room,
+                'players': lobbies[room]['players'],
+                'ready_players': lobbies[room]['ready_players'],
+                'total_players': total_players,
+                'ready_count': ready_count,
+                'all_ready': all_ready
+            }
+            print(f"Server: Emitting player_ready_status with data: {ready_data}")
+            emit('player_ready_status', ready_data, room=room)
+            
+            # If all players are ready, notify the host
+            if all_ready:
+                print(f"Server: All players ready in room {room}, notifying host")
+                emit('all_players_ready', {
+                    'room': room,
+                    'players': lobbies[room]['players'],
+                    'ready_players': lobbies[room]['ready_players'],
+                    'total_players': total_players,
+                    'all_ready': True
+                }, room=room)
+        else:
+            print(f"Server: Error - Player {player_id} not found in ready_players for room {room}")
+            emit('error', {'message': 'Player not found in room'})
+    else:
+        print(f"Server: Error - Room {room} not found")
+        emit('error', {'message': 'Room not found'})
+    print("=== END PLAYER READY EVENT ===\n")
+
+@socketio.on('start_game')
+def handle_start_game(data):
+    print(f"\n=== START GAME REQUEST ===")
+    print(f"Data received: {data}")
+    
+    room = data.get('room')
+    difficulty = data.get('difficulty', 'medium')
+    max_score = data.get('max_score', 10)
+    
+    if not room:
+        print("Missing room")
+        emit('error', {'message': 'Missing room'})
+        return
         
-        # Update player ready status
-        lobbies[room]['ready_players'][player_id] = is_ready
-        print(f"Server: Updated ready status for player {player_id} in room {room} to {is_ready}")
+    if room not in lobbies:
+        print(f"Room {room} not found")
+        emit('error', {'message': 'Room not found'})
+        return
         
-        # Check if all players are ready
-        all_ready = all(lobbies[room]['ready_players'].values())
-        total_players = len(lobbies[room]['ready_players'])
-        ready_count = sum(1 for status in lobbies[room]['ready_players'].values() if status)
+    lobby = lobbies[room]
+    print(f"Found lobby: {lobby}")
+    
+    # Store current players as previous players
+    lobby["previous_players"] = {pid: data.copy() for pid, data in lobby["players"].items()}
+    print(f"Stored previous players: {lobby['previous_players']}")
+    
+    # Verify all players are ready
+    ready_count = sum(1 for pid, status in lobby['ready_players'].items() 
+                     if status or pid == lobby['host'])
+    total_players = len(lobby['ready_players'])
+    
+    print(f"Ready count: {ready_count}/{total_players}")
+    
+    if ready_count != total_players:
+        print(f"Not all players are ready. Ready: {ready_count}/{total_players}")
+        emit('error', {'message': 'Not all players are ready'})
+        return
+    
+    # Update game settings
+    lobby['difficulty'] = difficulty
+    lobby['max_score'] = max_score
+    lobby['game_started'] = True
+    lobby['processing_timeout'] = False  # Initialize the processing flag
+    
+    print(f"Updated game settings: difficulty={difficulty}, max_score={max_score}")
+    
+    # Get first word
+    new_entry = get_new_word(None, difficulty)
+    if new_entry is None:
+        print("No word available")
+        emit('error', {'message': 'No word available'})
+        return
         
-        print(f"Server: Room {room} status - All ready: {all_ready}, Ready count: {ready_count}/{total_players}")
+    lobby['current_entry'] = new_entry
+    lobby['current_word'] = new_entry['word']
+    lobby['word_start_time'] = time.time()
+    lobby['passes'] = set()
+    
+    print(f"Starting game in room {room} with word: {new_entry['word']}")
+    
+    # Emit game started event to all players
+    game_started_data = {
+        'room': room,
+        'current_word': new_entry['word'],
+        'translations': {
+            'sv': new_entry['translation_sv'],
+            'fr': new_entry['translation_fr']
+        }
+    }
+    print(f"Emitting game_started event with data: {game_started_data}")
+    emit('game_started', game_started_data, room=room)
+    
+    # Start the timeout check
+    check_word_timeout(room)
+    
+    print("=== END START GAME REQUEST ===\n")
+
+def check_word_timeout(room):
+    """Check if the current word has timed out and handle it if it has."""
+    if room not in lobbies:
+        return
         
-        # Emit updated ready status to all players in the room
-        emit('player_ready_status', {
-            'ready_players': lobbies[room]['ready_players'],
-            'total_players': total_players
+    lobby = lobbies[room]
+    if not lobby.get('game_started') or lobby.get('game_over'):
+        return
+        
+    current_time = time.time()
+    word_start_time = lobby.get('word_start_time', 0)
+    time_elapsed = current_time - word_start_time
+    
+    if time_elapsed >= 30:  # 30 seconds timeout
+        print(f"Word timeout detected in room {room}")
+        handle_word_timeout(room)
+    else:
+        # Schedule next check
+        socketio.sleep(1)  # Wait 1 second before next check
+        check_word_timeout(room)
+
+def handle_word_timeout(room):
+    """Handle a word timeout in the given room."""
+    if room not in lobbies:
+        return
+        
+    lobby = lobbies[room]
+    if not lobby.get('game_started') or lobby.get('game_over'):
+        return
+        
+    print("=== HANDLING WORD TIMEOUT ===")
+    print(f"Room: {room}")
+    
+    # Add current word to history as not guessed
+    if lobby.get('current_entry'):
+        current_word = lobby['current_word']
+        lobby['game_history'].append({
+            "word": current_word,
+            "translations": {
+                "sv": lobby['current_entry']['translation_sv'],
+                "fr": lobby['current_entry']['translation_fr']
+            },
+            "guessed_by": None  # No one guessed it correctly
+        })
+        print(f"Added word {current_word} to history")
+    
+    # Get new word
+    new_entry = get_new_word(lobby['current_word'], lobby['difficulty'])
+    if new_entry:
+        # Update game state
+        lobby['current_word'] = new_entry['word']
+        lobby['current_entry'] = new_entry
+        lobby['word_start_time'] = time.time()
+        lobby['passes'] = set()
+        
+        # Make the word fall down for all players
+        emit('word_fall_down', room=room)
+        
+        # Broadcast new word and scores
+        emit('new_word', {
+            'word': new_entry['word'],
+            'translations': {
+                'sv': new_entry['translation_sv'],
+                'fr': new_entry['translation_fr']
+            },
+            'players': lobby['players']
         }, room=room)
         
-        # If all players are ready, notify the host
-        if all_ready:
-            print(f"Server: All players ready in room {room}, notifying host")
-            emit('all_players_ready', room=room)
-    else:
-        print(f"Server: Error - Room {room} not found")
-
-@socketio.on('start_new_game')
-def handle_start_new_game(data):
-    room = data.get('room')
-    print(f"Server: Start new game event received for room {room}")
-    
-    if room in lobbies:
-        # Get game settings
-        language = data.get('language', 'sv')
-        difficulty = data.get('difficulty', 'medium')
-        player_name = data.get('playerName', 'Player')
+        # Update scoreboard
+        emit('update_scoreboard', {
+            'players': lobby['players']
+        }, room=room)
         
-        print(f"Server: Starting new game in room {room} with settings:", {
-            'language': language,
-            'difficulty': difficulty,
-            'player_name': player_name
+        print(f"New word set: {new_entry['word']}")
+    
+    print("=== END HANDLING WORD TIMEOUT ===")
+
+@socketio.on('set_difficulty')
+def handle_set_difficulty(data):
+    room = data.get('room')
+    difficulty = data.get('difficulty')
+    
+    if not room or not difficulty:
+        return {'error': 'Missing room or difficulty'}
+        
+    if room not in lobbies:
+        return {'error': 'Room not found'}
+        
+    lobby = lobbies[room]
+    lobby['difficulty'] = difficulty
+    
+    # Broadcast the difficulty update to all players
+    emit('difficulty_updated', {
+        'difficulty': difficulty
+    }, room=room)
+    
+    return {'status': 'success'}
+
+@socketio.on('pass_word')
+def handle_pass_word(data):
+    print(f"Pass word event received: {data}")
+    room = data.get('room')
+    player_id = data.get('player_id')
+    
+    if not room or not player_id:
+        print("Missing room or player_id")
+        return {'error': 'Missing room or player_id'}
+        
+    if room not in lobbies:
+        print(f"Room {room} not found")
+        return {'error': 'Room not found'}
+        
+    lobby = lobbies[room]
+    
+    if not lobby.get('game_started'):
+        print("Game not started")
+        return {'error': 'Game not started'}
+        
+    if player_id not in lobby.get('passed_players', []):
+        lobby.setdefault('passed_players', []).append(player_id)
+        print(f"Player {player_id} passed. Total passes: {len(lobby.get('passed_players', []))}")
+        
+        # If all players have passed, get a new word
+        if len(lobby.get('passed_players', [])) == len(lobby.get('players', [])):
+            print("All players passed, getting new word")
+            new_word = get_new_word(lobby.get('current_word'), lobby.get('difficulty', 'medium'))
+            if new_word:
+                lobby['current_word'] = new_word['word']
+                lobby['current_entry'] = new_word
+                lobby['word_start_time'] = time.time()
+                lobby['passed_players'] = []
+                
+                # Broadcast new word to all players
+                emit('new_word', {
+                    'word': new_word['word'],
+                    'translations': {
+                        'sv': new_word['translation_sv'],
+                        'fr': new_word['translation_fr']
+                    }
+                }, room=room)
+            
+        # Broadcast pass status to all players
+        emit('pass_status', {
+            'player_id': player_id,
+            'passed_players': lobby.get('passed_players', [])
+        }, room=room)
+        
+    return {'status': 'success'}
+
+@socketio.on('guess_word')
+def handle_guess_word(data):
+    print("\n=== HANDLING GUESS WORD ===")
+    print(f"Data received: {data}")
+    
+    room = data.get('room')
+    player_id = data.get('player_id')
+    guess = data.get('guess')
+    
+    if not all([room, player_id, guess]):
+        print("Missing required data")
+        return
+    
+    if room not in lobbies:
+        print(f"Room {room} not found")
+        return
+    
+    lobby = lobbies[room]
+    if not lobby.get('game_started'):
+        print("Game not started")
+        return
+    
+    # Check if game is already over
+    if lobby.get('game_over'):
+        print("Game is already over")
+        emit('guess_result', {'correct': False, 'game_over': True})
+        return
+    
+    current_word = lobby.get('current_word')
+    current_entry = lobby.get('current_entry', {})
+    
+    if not current_word or not current_entry:
+        print("No current word")
+        return
+    
+    # Get the player's language from the lobby data
+    player_data = lobby['players'].get(player_id)
+    if not player_data:
+        print(f"Player {player_id} not found in lobby")
+        return
+    
+    player_language = player_data.get('language', 'en')
+    print(f"Player language from lobby: {player_language}")
+    
+    # If player is French, they need to guess the Swedish word and vice versa
+    target_language = 'sv' if player_language == 'fr' else 'fr'
+    translation_key = f'translation_{target_language}'
+    correct_translation = current_entry.get(translation_key)
+    
+    if not correct_translation:
+        print(f"No translation found for language {target_language}")
+        return
+    
+    # Normalize both the guess and the correct answer
+    normalized_guess = normalize_text(guess)
+    normalized_answer = normalize_text(correct_translation)
+    
+    print(f"Player language: {player_language}")
+    print(f"Target language: {target_language}")
+    print(f"Guess {guess} (normalized: {normalized_guess})")
+    print(f"Correct answer: {correct_translation} (normalized: {normalized_answer})")
+    
+    is_correct = normalized_guess == normalized_answer
+    print(f"Guess is {'correct' if is_correct else 'incorrect'}")
+    
+    if is_correct:
+        # Add current word to history as guessed
+        lobby['game_history'].append({
+            "word": current_word,
+            "translations": {
+                "sv": current_entry['translation_sv'],
+                "fr": current_entry['translation_fr']
+            },
+            "guessed_by": player_data['name']
         })
         
-        # Reset ready status for all players
-        lobbies[room]['ready_players'] = {player: False for player in lobbies[room]['ready_players']}
-        print(f"Server: Reset ready status for all players in room {room}")
-        
-        # Emit game starting event
-        emit('game_starting', room=room)
-        print(f"Server: Emitted game_starting event to room {room}")
-        
-        # Start new game with settings
-        start_new_game(room, language, difficulty)
-    else:
-        print(f"Server: Error - Room {room} not found")
+        # Update player score
+        if player_id in lobby['players']:
+            lobby['players'][player_id]['score'] += 1
+            print(f"Updated score for player {player_id}: {lobby['players'][player_id]['score']}")
+            
+            # Check if game is over
+            max_score = lobby.get('max_score', 10)
+            print(f"Current score: {lobby['players'][player_id]['score']}, Max score: {max_score}")
+            if lobby['players'][player_id]['score'] >= max_score:
+                print(f"Game over! Player {player_id} reached max score")
+                lobby['game_over'] = True
+                lobby['winner'] = lobby['players'][player_id]['name']
+                
+                # Broadcast game over
+                emit('game_over', {
+                    'winner': lobby['winner'],
+                    'players': lobby['players'],
+                    'game_history': lobby['game_history']
+                }, room=room)
+                
+                # Send guess result to the player
+                emit('guess_result', {'correct': True, 'game_over': True})
+                
+                # Broadcast updated scores
+                emit('update_scoreboard', {'players': lobby['players']}, room=room)
+                return  # End the game here
+            
+            # Get new word for next round
+            new_entry = get_new_word(lobby['current_word'], lobby.get('difficulty', 'medium'))
+            if new_entry:
+                print(f"Getting new word: {new_entry['word']}")
+                lobby['current_word'] = new_entry['word']
+                lobby['current_entry'] = new_entry
+                lobby['word_start_time'] = time.time()
+                lobby['passes'] = set()
+                
+                # Broadcast new word and scores
+                emit('new_word', {
+                    'word': new_entry['word'],
+                    'translations': {
+                        'sv': new_entry['translation_sv'],
+                        'fr': new_entry['translation_fr']
+                    },
+                    'players': lobby['players']
+                }, room=room)
+                
+                # Update scoreboard
+                emit('update_scoreboard', {'players': lobby['players']}, room=room)
+    
+    # Send guess result to the player
+    emit('guess_result', {'correct': is_correct})
+    
+    # If guess was correct, make the word fall down for other players
+    if is_correct:
+        emit('word_fall_down', room=room, skip_sid=request.sid)
+    
+    # Broadcast updated scores
+    emit('update_scoreboard', {'players': lobby['players']}, room=room)
+    
+    print("=== END HANDLING GUESS WORD ===\n")
 
-def start_new_game(room, language, difficulty):
-    print(f"Server: Starting new game for room {room}")
-    try:
-        # Reset game state
-        lobbies[room]['game_state'] = {
-            'current_word': '',
-            'guessed_letters': set(),
-            'wrong_guesses': 0,
-            'max_wrong_guesses': 6,
-            'game_over': False,
-            'winner': None,
-            'score': 0
-        }
+@socketio.on('create_room')
+def handle_create_room(data):
+    print("\n=== ROOM CREATION REQUEST ===")
+    room = str(uuid.uuid4())[:8]
+    player_id = request.sid
+    
+    # Create room with initial player
+    lobbies[room] = {
+        'players': {
+            player_id: {
+                'name': data['name'],
+                'language': data['language'],
+                'ready': False,
+                'score': 0
+            }
+        },
+        'host': player_id,
+        'current_word': None,
+        'current_entry': None,
+        'difficulty': 'medium',
+        'max_score': None,
+        'game_over': False,
+        'winner': None,
+        'passes': set(),
+        'game_history': [],
+        'game_started': False
+    }
+    
+    join_room(room)
+    emit('room_created', {
+        'room': room,
+        'player_id': player_id,
+        'is_host': True
+    })
+    print("=== END ROOM CREATION REQUEST ===\n")
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    print(f"\n=== HANDLING JOIN ROOM ===")
+    print(f"Data received: {data}")
+    
+    room = data.get('room')
+    player_name = data.get('player_name')
+    player_language = data.get('player_language')
+    
+    if not all([room, player_name, player_language]):
+        print("Missing required data")
+        return
+    
+    if room not in lobbies:
+        print(f"Room {room} not found")
+        return
+    
+    player_id = get_player_id()
+    if not player_id:
+        print("No player ID found")
+        return
+    
+    print(f"Player {player_id} joining room {room}")
+    print(f"Name: {player_name}")
+    print(f"Language: {player_language}")
+    
+    # Update player info in lobby
+    lobby = lobbies[room]
+    is_host = player_id == lobby['host']
+    
+    lobby['players'][player_id] = {
+        "name": player_name,
+        "ready": is_host,  # Host is always ready
+        "language": player_language,
+        "score": 0
+    }
+    
+    # Add player to ready_players if not already there
+    if player_id not in lobby['ready_players']:
+        lobby['ready_players'][player_id] = is_host  # Host is always ready
+        print(f"Added player {player_id} to ready_players in room {room} with ready status {is_host}")
+    
+    # Join the socket room
+    join_room(room)
+    
+    # Emit room_joined event back to the client
+    emit('room_joined', {
+        'room': room,
+        'player_id': player_id,
+        'is_host': is_host,
+        'players': lobby['players']
+    })
+    
+    # Broadcast to other players that someone joined
+    emit('user_joined', {
+        'players': lobby['players']
+    }, room=room, include_self=False)
+    
+    print(f"=== END HANDLING JOIN ROOM ===\n")
+
+@socketio.on('chat_message')
+def handle_chat_message(data):
+    print(f"\n=== CHAT MESSAGE ===")
+    print(f"Data received: {data}")
+    
+    room = data.get('room')
+    message = data.get('message')
+    sender = data.get('sender')
+    message_id = data.get('message_id')
+    
+    if not all([room, message, sender]):
+        print("Missing required data")
+        return
+    
+    if room not in lobbies:
+        print(f"Room {room} not found")
+        return
+    
+    # Broadcast the message to all players in the room
+    emit('chat_message', {
+        'sender': sender,
+        'message': message,
+        'message_id': message_id
+    }, room=room)
+    
+    print("=== END CHAT MESSAGE ===\n")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"\n=== HANDLING DISCONNECT ===")
+    player_id = get_player_id()
+    if not player_id:
+        print("No player ID found")
+        return
         
-        # Get new word based on language and difficulty
-        word = get_new_word(lobbies[room].get('current_word'), difficulty)
-        if word:
-            lobbies[room]['current_entry'] = word
-            lobbies[room]['current_word'] = word['word']
-            lobbies[room]['word_start_time'] = time.time()
-            lobbies[room]['passes'] = set()
+    print(f"Player {player_id} disconnected")
+    
+    # Find and clean up player from all lobbies
+    for room, lobby in list(lobbies.items()):
+        if player_id in lobby['players']:
+            print(f"Removing player {player_id} from room {room}")
             
-            print(f"Server: New game started in room {room} with word: {word['word']}")
+            # Remove player from players and ready_players
+            del lobby['players'][player_id]
+            if player_id in lobby['ready_players']:
+                del lobby['ready_players'][player_id]
             
-            # Emit new game state to all players
-            emit('new_game_state', {
-                'current_word': word['word'],
-                'translations': {
-                    'sv': word['translation_sw'],
-                    'fr': word['translation_fr']
-                }
-            }, room=room)
-            print(f"Server: Emitted new game state to room {room}")
-        else:
-            print(f"Server: Error - No word available for room {room}")
-            emit('error', {'message': 'No word available'}, room=room)
+            # If this was the host, assign a new host if there are other players
+            if player_id == lobby['host'] and lobby['players']:
+                new_host = next(iter(lobby['players']))
+                lobby['host'] = new_host
+                lobby['players'][new_host]['ready'] = True
+                lobby['ready_players'][new_host] = True
+                print(f"Assigned new host: {new_host}")
             
-    except Exception as e:
-        print(f"Server: Error starting new game in room {room}: {str(e)}")
-        emit('error', {'message': 'Failed to start new game'}, room=room)
+            # Only delete the lobby if it's empty and the game hasn't started
+            if not lobby['players'] and not lobby.get('game_started'):
+                print(f"Removing empty room {room}")
+                del lobbies[room]
+            else:
+                # Notify remaining players
+                emit('user_left', {
+                    'players': lobby['players'],
+                    'ready_players': lobby['ready_players']
+                }, room=room)
+    
+    print("=== END HANDLING DISCONNECT ===\n")
+
+@socketio.on('get_current_word')
+def handle_get_current_word(data):
+    print("\n=== HANDLING GET CURRENT WORD ===")
+    print(f"Data received: {data}")
+    
+    room = data.get('room')
+    if not room:
+        print("No room provided")
+        return {'error': 'No room provided'}
+    
+    if room not in lobbies:
+        print(f"Room {room} not found")
+        return {'error': 'Room not found'}
+    
+    lobby = lobbies[room]
+    if not lobby.get('game_started'):
+        print("Game not started")
+        return {'error': 'Game not started'}
+    
+    current_word = lobby.get('current_word')
+    current_entry = lobby.get('current_entry', {})
+    
+    if not current_word or not current_entry:
+        print("No current word")
+        return {'error': 'No current word'}
+    
+    print(f"Current word: {current_word}")
+    print(f"Current entry: {current_entry}")
+    
+    # Send the current word with translations
+    emit('current_word', {
+        'word': current_word,
+        'translations': {
+            'sv': current_entry.get('translation_sv', ''),
+            'fr': current_entry.get('translation_fr', '')
+        }
+    })
+    
+    return {'status': 'success'}
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the Flask app")
