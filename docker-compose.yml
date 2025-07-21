@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - RUST_LOG=debug
+    volumes:
+      - ./wordlists:/app/wordlists:ro
+    networks:
+      - motord-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    networks:
+      - motord-network
+    restart: unless-stopped
+
+networks:
+  motord-network:
+    driver: bridge 
