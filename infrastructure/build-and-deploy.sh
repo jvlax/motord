@@ -39,26 +39,14 @@ REGISTRY_ENDPOINT=$(terraform output -raw registry_endpoint 2>/dev/null || echo 
 print_status "Registry endpoint: $REGISTRY_ENDPOINT"
 
 # Build and push frontend image
-print_status "Building frontend image..."
+print_status "Building and pushing frontend image..."
 cd ../frontend
-docker buildx build --platform linux/amd64 -t motord-wordgame/frontend:latest .
-
-print_status "Tagging frontend image for Scaleway registry..."
-docker tag motord-wordgame/frontend:latest $REGISTRY_ENDPOINT/motord-wordgame/frontend:latest
-
-print_status "Pushing frontend image to Scaleway registry..."
-docker push $REGISTRY_ENDPOINT/motord-wordgame/frontend:latest
+docker buildx build --platform linux/amd64 -t $REGISTRY_ENDPOINT/motord-wordgame/frontend:latest --push .
 
 # Build and push backend image
-print_status "Building backend image..."
+print_status "Building and pushing backend image..."
 cd ../backend
-docker buildx build --platform linux/amd64 -t motord-wordgame/backend:latest .
-
-print_status "Tagging backend image for Scaleway registry..."
-docker tag motord-wordgame/backend:latest $REGISTRY_ENDPOINT/motord-wordgame/backend:latest
-
-print_status "Pushing backend image to Scaleway registry..."
-docker push $REGISTRY_ENDPOINT/motord-wordgame/backend:latest
+docker buildx build --platform linux/amd64 -t $REGISTRY_ENDPOINT/motord-wordgame/backend:latest --push .
 
 print_status "✅ All images built and pushed successfully!"
 
