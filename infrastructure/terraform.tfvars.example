@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+# Scaleway credentials (use your NEW API key without default project)
+scaleway_access_key      = "your-new-access-key"
+scaleway_secret_key      = "your-new-secret-key"
+scaleway_organization_id = "ce8ac001-24f7-47b1-99e6-c77d3118c1c8"
+scaleway_project_id      = "ce8ac001-24f7-47b1-99e6-c77d3118c1c8"
+
+# Domain configuration
+domain_name = "motord.fr"
+
+# Region configuration (optional, defaults to fr-par)
+region = "fr-par"
+zone   = "fr-par-1" 

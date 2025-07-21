@@ -7,3 +7,7 @@ wordlists/wordlist_name.json
 wordlists/wordlist_noname.json
 wordlists/wordlist_simple.json
 wordlists/wordlist-kids2.json
+unused_files/
+node_modules/
+
+# Infrastructure sensitive files are handled by infrastructure/.gitignore
