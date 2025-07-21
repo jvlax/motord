@@ -233,7 +233,7 @@ resource "scaleway_instance_server" "app" {
 resource "scaleway_lb" "main" {
   name            = "${var.project_name}-lb"
   type            = "lb-s"
-  ip_id           = scaleway_lb_ip.main.id
+  ip_ids          = [scaleway_lb_ip.main.id]
   
   private_network {
     private_network_id = scaleway_vpc_private_network.main.id

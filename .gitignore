@@ -10,4 +10,7 @@ wordlists/wordlist-kids2.json
 unused_files/
 node_modules/
 
+# Vite cache
+.vite/
+
 # Infrastructure sensitive files are handled by infrastructure/.gitignore
