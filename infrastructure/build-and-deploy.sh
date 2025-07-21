@@ -41,7 +41,7 @@ print_status "Registry endpoint: $REGISTRY_ENDPOINT"
 # Build and push frontend image
 print_status "Building frontend image..."
 cd ../frontend
-docker build -t motord-wordgame/frontend:latest .
+docker buildx build --platform linux/amd64 -t motord-wordgame/frontend:latest .
 
 print_status "Tagging frontend image for Scaleway registry..."
 docker tag motord-wordgame/frontend:latest $REGISTRY_ENDPOINT/motord-wordgame/frontend:latest
@@ -52,7 +52,7 @@ docker push $REGISTRY_ENDPOINT/motord-wordgame/frontend:latest
 # Build and push backend image
 print_status "Building backend image..."
 cd ../backend
-docker build -t motord-wordgame/backend:latest .
+docker buildx build --platform linux/amd64 -t motord-wordgame/backend:latest .
 
 print_status "Tagging backend image for Scaleway registry..."
 docker tag motord-wordgame/backend:latest $REGISTRY_ENDPOINT/motord-wordgame/backend:latest

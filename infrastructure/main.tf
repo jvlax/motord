@@ -43,8 +43,14 @@ resource "scaleway_instance_security_group" "main" {
   inbound_default_policy = "drop"
   outbound_default_policy = "accept"
 
-  # No inbound rules needed - Load balancer communicates via private network
-  # SSH access available via flexible IP when needed for debugging
+  # Temporary SSH access for debugging
+  inbound_rule {
+    action   = "accept"
+    port     = 22
+    protocol = "TCP"
+  }
+
+  # No other inbound rules needed - Load balancer communicates via private network
 }
 
 # Instance 1 (Frontend + Backend)
