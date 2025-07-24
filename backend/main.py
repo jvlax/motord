@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -430,6 +430,7 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
         start_time=datetime.now()
     )
     game_states[lobby_id] = game_state
+    print(f"[FUSEBAR-BACKEND] Game started for lobby {lobby_id}. Word: {current_word}, fuse_time: {game_state.fuse_time}, fuse_max_time: {game_state.fuse_max_time}")
     
     # Broadcast game started message
     await broadcast_to_lobby(lobby_id, {
@@ -440,17 +441,20 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
         "current_word_language": current_word_language,
         "current_word_translations": current_word_translations
     })
+    print(f"[FUSEBAR-BACKEND] Broadcasted game_started for lobby {lobby_id}.")
     
     return {"status": "game_started"}
 
 @app.post("/lobby/{lobby_id}/play_again")
-async def play_again(lobby_id: str, player_id: str = Form(...)):
+async def play_again(lobby_id: str, request: Request):
+    form = await request.form()
+    print(f"[DEBUG] Play Again called: remote_addr={request.client.host}, headers={dict(request.headers)}, form={dict(form)}")
     """Reset game and return to lobby (host only)"""
     if lobby_id not in lobbies:
         raise HTTPException(status_code=404, detail="Lobby not found")
     
     lobby = lobbies[lobby_id]
-    player = next((p for p in lobby.players if p.id == player_id), None)
+    player = next((p for p in lobby.players if p.id == form.get("player_id")), None)
     
     if not player or not player.is_host:
         raise HTTPException(status_code=403, detail="Only host can restart the game")
@@ -464,6 +468,7 @@ async def play_again(lobby_id: str, player_id: str = Form(...)):
     # Clear game state
     if lobby_id in game_states:
         del game_states[lobby_id]
+        print(f"[FUSEBAR-BACKEND] Cleared game state for lobby {lobby_id} on play again.")
     
     # Broadcast play again message
     await broadcast_to_lobby(lobby_id, {
@@ -478,6 +483,7 @@ async def play_again(lobby_id: str, player_id: str = Form(...)):
             "score": p.score
         } for p in lobby.players]
     })
+    print(f"[FUSEBAR-BACKEND] Broadcasted play_again for lobby {lobby_id}.")
     
     return {"status": "game_reset"}
 
@@ -650,6 +656,7 @@ async def handle_timeout(lobby_id: str):
         "time_taken": 30,  # Full time for timeout
         "status": "timeout"
     })
+    print(f"[FUSEBAR-BACKEND] Timeout for lobby {lobby_id}. Previous word: {game_state.current_word}")
     
     # Get new word
     new_word_data = get_random_word(lobby.difficulty)
@@ -662,6 +669,7 @@ async def handle_timeout(lobby_id: str):
     game_state.current_word = new_word_data["word"]
     game_state.current_word_language = current_word_language
     game_state.current_word_translations = current_word_translations
+    print(f"[FUSEBAR-BACKEND] New word after timeout: {game_state.current_word}, fuse_time: {game_state.fuse_time}, fuse_max_time: {game_state.fuse_max_time}")
     
     # Broadcast new word (no winner, just timeout)
     broadcast_message = {
@@ -673,6 +681,7 @@ async def handle_timeout(lobby_id: str):
     
     # Broadcast the message
     await broadcast_to_lobby(lobby_id, broadcast_message)
+    print(f"[FUSEBAR-BACKEND] Broadcasted word_timeout for lobby {lobby_id}.")
     
     return {"status": "timeout_handled"}
 

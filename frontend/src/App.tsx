@@ -1,6 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react'
 import { FiLink, FiCheck } from 'react-icons/fi';
 import { config } from './config';
+import { useMobile } from './hooks/useMobile';
+import { MobileGameScreen } from './components/MobileGameScreen';
+import { MobileLobbyScreen } from './components/MobileLobbyScreen';
+import { MobileSetupScreen } from './components/MobileSetupScreen';
+import { MobileGameSummary } from './components/MobileGameSummary';
 
 interface Player {
   id: string
@@ -67,6 +72,8 @@ interface GameSummary {
 }
 
 function App() {
+  const { isMobile } = useMobile()
+  
   // Add shake animation CSS
   useEffect(() => {
     const style = document.createElement('style')
@@ -297,13 +304,16 @@ function App() {
     setGameState(prev => {
       if (prev.pendingWordData) {
         console.log('🎯 Applying pending word data after fly-out:', prev.pendingWordData)
+        // Generate a new wordKey for the new word
+        const newWordKey = `${Date.now()}-${Math.random()}`
         return {
           ...prev,
           currentWord: prev.pendingWordData.currentWord,
           currentWordLanguage: prev.pendingWordData.currentWordLanguage,
           currentWordTranslations: prev.pendingWordData.currentWordTranslations,
           wordAnimation: 'hidden' as const,
-          pendingWordData: undefined
+          pendingWordData: undefined,
+          wordKey: newWordKey
         }
       }
       return {
@@ -327,13 +337,16 @@ function App() {
     setGameState(prev => {
       if (prev.pendingWordData) {
         console.log('🎯 Applying pending word data after drop-down:', prev.pendingWordData)
+        // Generate a new wordKey for the new word
+        const newWordKey = `${Date.now()}-${Math.random()}`
         return {
           ...prev,
           currentWord: prev.pendingWordData.currentWord,
           currentWordLanguage: prev.pendingWordData.currentWordLanguage,
           currentWordTranslations: prev.pendingWordData.currentWordTranslations,
           wordAnimation: 'hidden' as const,
-          pendingWordData: undefined
+          pendingWordData: undefined,
+          wordKey: newWordKey
         }
       }
       return {
@@ -354,10 +367,11 @@ function App() {
   const handleWordDropInEnd = () => {
     console.log('🎬 Word drop-in animation ended')
     // Word is now visible after drop-in animation - update wordKey to show this word
+    // Always generate a new wordKey for the visible word
     setGameState(prev => ({
       ...prev,
       wordAnimation: 'none',
-      wordKey: prev.pendingWordData?.wordKey || prev.wordKey
+      wordKey: `${Date.now()}-${Math.random()}`
     }))
     
     // Reset fuse timer for new word
@@ -410,21 +424,82 @@ function App() {
     }
   }, [gameState.wordAnimation])
 
+  // Deep-dive fuse bar effect for all words after the first
   useEffect(() => {
     if (!gameState.isGameActive) return
     if (!fuseBarRef.current) return
     if (!showFuseBar) return
+    // Deep-dive debug logging
+    const now = Date.now()
+    const fuseBar = fuseBarRef.current
+    const parent = fuseBar.parentElement
+    const wordContainer = document.querySelector('.word-container')
+    const fuseBarRect = fuseBar.getBoundingClientRect()
+    const parentRect = parent ? parent.getBoundingClientRect() : null
+    const wordRect = wordContainer ? wordContainer.getBoundingClientRect() : null
+    const computedStyle = window.getComputedStyle(fuseBar)
+    console.log('[FUSEBAR-DEBUG] useEffect triggered', { now, currentWord: gameState.currentWord, wordKey: gameState.wordKey, showFuseBar, fuseBarRect, parentRect, wordRect, computedStyle, fuseBar, parent, wordContainer })
     // Instantly reset bar to full width, no transition
-    fuseBarRef.current.style.transition = 'none'
-    fuseBarRef.current.style.transform = 'scaleX(1)'
+    fuseBar.style.transition = 'none'
+    fuseBar.style.transform = 'scaleX(1)'
+    const computedStyleAfterReset = window.getComputedStyle(fuseBar)
+    console.log('[FUSEBAR-DEBUG] After reset', { now: Date.now(), style: computedStyleAfterReset, fuseBarRect: fuseBar.getBoundingClientRect() })
     setTimeout(() => {
       if (!fuseBarRef.current) return
+      const now2 = Date.now()
+      const computedStyleBeforeAnim = window.getComputedStyle(fuseBarRef.current)
+      console.log('[FUSEBAR-DEBUG] Before animation', { now: now2, style: computedStyleBeforeAnim, fuseBarRect: fuseBarRef.current.getBoundingClientRect() })
       fuseBarRef.current.style.transition = `transform linear ${gameState.fuseMaxTime}s`
       fuseBarRef.current.style.transform = 'scaleX(0)'
+      setTimeout(() => {
+        if (!fuseBarRef.current) return
+        const now3 = Date.now()
+        const computedStyleAfterAnim = window.getComputedStyle(fuseBarRef.current)
+        console.log('[FUSEBAR-DEBUG] After animation', { now: now3, style: computedStyleAfterAnim, fuseBarRect: fuseBarRef.current.getBoundingClientRect() })
+      }, 10)
     }, 20)
   }, [gameState.currentWord, showFuseBar])
 
+  // Guarantee fuse bar animation runs for the first word
+  React.useLayoutEffect(() => {
+    if (!gameState.isGameActive) return
+    if (!fuseBarRef.current) return
+    if (!showFuseBar) return
+    // Only run if this is the first word (wordKey is set but effect hasn't run yet)
+    if (gameState.wordKey && gameState.currentWord) {
+      const now = Date.now()
+      const fuseBar = fuseBarRef.current
+      const parent = fuseBar.parentElement
+      const wordContainer = document.querySelector('.word-container')
+      const fuseBarRect = fuseBar.getBoundingClientRect()
+      const parentRect = parent ? parent.getBoundingClientRect() : null
+      const wordRect = wordContainer ? wordContainer.getBoundingClientRect() : null
+      const computedStyle = window.getComputedStyle(fuseBar)
+      console.log('[FUSEBAR-DEBUG-FIRSTWORD] useLayoutEffect triggered', { now, currentWord: gameState.currentWord, wordKey: gameState.wordKey, showFuseBar, fuseBarRect, parentRect, wordRect, computedStyle, fuseBar, parent, wordContainer })
+      // Instantly reset bar to full width, no transition
+      fuseBar.style.transition = 'none'
+      fuseBar.style.transform = 'scaleX(1)'
+      const computedStyleAfterReset = window.getComputedStyle(fuseBar)
+      console.log('[FUSEBAR-DEBUG-FIRSTWORD] After reset', { now: Date.now(), style: computedStyleAfterReset, fuseBarRect: fuseBar.getBoundingClientRect() })
+      setTimeout(() => {
+        if (!fuseBarRef.current) return
+        const now2 = Date.now()
+        const computedStyleBeforeAnim = window.getComputedStyle(fuseBarRef.current)
+        console.log('[FUSEBAR-DEBUG-FIRSTWORD] Before animation', { now: now2, style: computedStyleBeforeAnim, fuseBarRect: fuseBarRef.current.getBoundingClientRect() })
+        fuseBarRef.current.style.transition = `transform linear ${gameState.fuseMaxTime}s`
+        fuseBarRef.current.style.transform = 'scaleX(0)'
+        setTimeout(() => {
+          if (!fuseBarRef.current) return
+          const now3 = Date.now()
+          const computedStyleAfterAnim = window.getComputedStyle(fuseBarRef.current)
+          console.log('[FUSEBAR-DEBUG-FIRSTWORD] After animation', { now: now3, style: computedStyleAfterAnim, fuseBarRect: fuseBarRef.current.getBoundingClientRect() })
+        }, 10)
+      }, 20)
+    }
+  }, [])
+
   const handleFuseTransitionEnd = () => {
+    console.log('[FUSEBAR] Transition end. showFuseBar:', showFuseBar, 'fuseBarRef:', fuseBarRef.current)
     if (!showFuseBar) return
     if (fuseBarRef.current && fuseBarRef.current.style.transform === 'scaleX(0)') {
       setShowFuseBar(false)
@@ -440,6 +515,18 @@ function App() {
       })
     }
   }
+
+  // Add debug log for fuseBarRef assignment
+  useEffect(() => {
+    if (fuseBarRef.current) {
+      console.log('[FUSEBAR] fuseBarRef assigned:', fuseBarRef.current)
+    }
+  }, [fuseBarRef.current])
+
+  // Add debug log for word/animation state changes
+  useEffect(() => {
+    console.log('[FUSEBAR] gameState.currentWord changed:', gameState.currentWord, 'wordKey:', gameState.wordKey)
+  }, [gameState.currentWord, gameState.wordKey])
 
 
   const handleTranslationSubmit = () => {
@@ -533,6 +620,44 @@ function App() {
     }
   }
 
+  // Add state for countdown
+  const [showCountdown, setShowCountdown] = useState<boolean | 'fading'>(false);
+  const [countdownValue, setCountdownValue] = useState<number>(3);
+  const [gameReady, setGameReady] = useState(false);
+  const countdownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownFadeRef = useRef<NodeJS.Timeout | null>(null);
+  const [countdownProgress, setCountdownProgress] = useState(1); // 1 = full, 0 = empty
+  const fuseBarFirstWordTriggerRef = useRef(false);
+  const [zoomKey, setZoomKey] = useState<number>(0); // To force re-animation
+
+  // Countdown logic
+  const startCountdown = () => {
+    setShowCountdown(true);
+    setCountdownValue(3);
+    setZoomKey(Math.random());
+    let count = 3;
+    const tick = () => {
+      if (count > 1) {
+        count -= 1;
+        setCountdownValue(count);
+        setZoomKey(Math.random());
+        countdownTimeoutRef.current = setTimeout(tick, 1000);
+      } else {
+        setShowCountdown('fading');
+        setTimeout(() => setShowCountdown(false), 200);
+      }
+    };
+    countdownTimeoutRef.current = setTimeout(tick, 1000);
+  };
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownTimeoutRef.current) clearTimeout(countdownTimeoutRef.current);
+      if (countdownFadeRef.current) clearTimeout(countdownFadeRef.current);
+    };
+  }, []);
+
   const handleWebSocketMessage = (data: any) => {
     console.log('Received WebSocket message:', data)
     switch (data.type) {
@@ -620,16 +745,8 @@ function App() {
         setSelectedMaxScore(data.max_score)
         break
       case 'game_started':
-        setCurrentPage('game')
-        const initialWordKey = `${Date.now()}-${Math.random()}`
-        setGameState(prev => ({ 
-          ...prev, 
-          isGameActive: true,
-          currentWord: data.current_word,
-          currentWordLanguage: data.current_word_language,
-          currentWordTranslations: data.current_word_translations,
-          wordKey: initialWordKey
-        }))
+        setCurrentPage('game');
+        handleGameStarted(data);
         // Initialize player positions for overtake detection
         if (lobby) {
           const sortedPlayers = lobby.players.sort((a, b) => (b.score || 0) - (a.score || 0))
@@ -1038,7 +1155,231 @@ function App() {
   // Sort players by score for scoreboard
   const sortedPlayers = lobby?.players.sort((a, b) => (b.score || 0) - (a.score || 0)) || []
 
+  // Only start fuse bar/game logic after countdown is done
+  useEffect(() => {
+    if (gameReady) {
+      setGameState(prev => ({ ...prev, isGameActive: true }));
+      // Explicitly trigger fuse bar reset/animation for first word
+      fuseBarFirstWordTriggerRef.current = true;
+    }
+  }, [gameReady]);
+
+  // In the fuse bar effect, if fuseBarFirstWordTriggerRef.current is true, force the animation
+  useEffect(() => {
+    if (!gameReady) return;
+    if (!gameState.isGameActive) return;
+    if (!fuseBarRef.current) return;
+    if (!showFuseBar) return;
+    if (fuseBarFirstWordTriggerRef.current) {
+      // Force fuse bar reset/animation for first word
+      fuseBarRef.current.style.transition = 'none';
+      fuseBarRef.current.style.transform = 'scaleX(1)';
+      setTimeout(() => {
+        if (!fuseBarRef.current) return;
+        fuseBarRef.current.style.transition = `transform linear ${gameState.fuseMaxTime}s`;
+        fuseBarRef.current.style.transform = 'scaleX(0)';
+      }, 20);
+      fuseBarFirstWordTriggerRef.current = false;
+    }
+  }, [gameReady, gameState.isGameActive, showFuseBar]);
+
+  // Add state for dummy word logic
+  const [dummyWordReady, setDummyWordReady] = useState(false);
+  const [realFirstWord, setRealFirstWord] = useState<any>(null);
+  const [skipDummyWord, setSkipDummyWord] = useState(false);
+
+  // On game start (game_started event):
+  const handleGameStarted = (data: any) => {
+    console.log('[HANDLE_GAME_STARTED] called with data:', data)
+    setDummyWordReady(false);
+    setSkipDummyWord(false);
+    console.log('[HANDLE_GAME_STARTED] setDummyWordReady(false), setSkipDummyWord(false)')
+    // Roll a dummy word (simulate as if it's the first word)
+    const dummyWord = { ...data, currentWord: '__DUMMY__', wordKey: `dummy-${Date.now()}` };
+    setGameState({ ...dummyWord, isGameActive: false });
+    console.log('[HANDLE_GAME_STARTED] setGameState to dummy word:', dummyWord)
+    // Trigger fuse bar logic for dummy word (simulate a word change)
+    setTimeout(() => {
+      setDummyWordReady(true);
+      setRealFirstWord({
+        currentWord: data.current_word,
+        currentWordLanguage: data.current_word_language,
+        currentWordTranslations: data.current_word_translations,
+        fuseTime: 30,
+        fuseMaxTime: 30,
+        isGameActive: true,
+        wordAnimation: 'drop-in',
+        wordKey: `${Date.now()}-${Math.random()}`
+      });
+      console.log('[HANDLE_GAME_STARTED] setDummyWordReady(true), setRealFirstWord (GameState shape)')
+    }, 100); // Give the DOM a tick to measure, can be tuned
+  };
+
+  // After dummy word is ready and countdown is done, show the real first word
+  useEffect(() => {
+    console.log('[DUMMYWORD EFFECT] showCountdown:', showCountdown, 'dummyWordReady:', dummyWordReady, 'realFirstWord:', realFirstWord, 'skipDummyWord:', skipDummyWord)
+    if (dummyWordReady && showCountdown === false && realFirstWord) {
+      console.log('[DUMMYWORD EFFECT] Swapping in real first word and unblocking UI')
+      setGameState(prev => ({
+        ...prev,
+        ...realFirstWord,
+        isGameActive: true,
+        wordAnimation: 'drop-in',
+      }));
+      setSkipDummyWord(true);
+      setDummyWordReady(false);
+      setRealFirstWord(null);
+      // Desktop: force fuse bar to reset and animate for first word
+      setShowFuseBar(false);
+      setTimeout(() => setShowFuseBar(true), 10);
+    }
+  }, [dummyWordReady, showCountdown, realFirstWord]);
+
+  // Add debug logs for all state transitions
+  useEffect(() => { console.log('[STATE] dummyWordReady:', dummyWordReady); }, [dummyWordReady]);
+  useEffect(() => { console.log('[STATE] realFirstWord:', realFirstWord); }, [realFirstWord]);
+  useEffect(() => { console.log('[STATE] skipDummyWord:', skipDummyWord); }, [skipDummyWord]);
+  useEffect(() => { console.log('[STATE] showCountdown:', showCountdown); }, [showCountdown]);
+
+  // On game start, trigger countdown (and dummy word logic if present)
+  // ... existing dummy word logic ...
+  // After dummy word is ready, start countdown if not already started
+  useEffect(() => {
+    if (dummyWordReady && !showCountdown) {
+      startCountdown();
+    }
+  }, [dummyWordReady]);
+
+  // After countdown is done, show the real first word and start fuse bar
+  useEffect(() => {
+    if (showCountdown === false && dummyWordReady && realFirstWord) {
+      setGameState({ ...realFirstWord, isGameActive: true });
+      setSkipDummyWord(true);
+      setDummyWordReady(false);
+      setRealFirstWord(null);
+    }
+  }, [showCountdown, dummyWordReady, realFirstWord]);
+
+  // Countdown overlay (always rendered at top level)
+  const CountdownOverlay = () => (
+    showCountdown !== false ? (
+      <div
+        className={`fixed inset-0 z-50 flex items-center justify-center bg-gray-900 transition-opacity duration-200 ${showCountdown === 'fading' ? 'opacity-0' : 'opacity-100'}`}
+        style={{ pointerEvents: 'all' }}
+      >
+        <span
+          key={zoomKey}
+          style={{
+            color: '#f59e0b',
+            fontWeight: 900,
+            fontSize: '20vw',
+            lineHeight: 1,
+            textAlign: 'center',
+            display: 'block',
+            transform: 'scale(0.8)',
+            animation: 'zoomInOut 1s cubic-bezier(0.4,0,0.2,1) forwards',
+          }}
+        >
+          {countdownValue}
+        </span>
+        <style>{`
+          @keyframes zoomInOut {
+            0% { transform: scale(0.8); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+          }
+        `}</style>
+      </div>
+    ) : null
+  );
+
+  // Add at the top of App component
+  const wordRef = useRef<HTMLHeadingElement>(null);
+  const [wordWidth, setWordWidth] = useState<number | undefined>(undefined);
+
+  // Measure word width for fuse bar using useLayoutEffect for perfect timing (desktop)
+  useLayoutEffect(() => {
+    if (wordRef.current) {
+      setWordWidth(wordRef.current.offsetWidth);
+    }
+  }, [gameState.currentWord, gameState.wordKey, gameState.wordAnimation]);
+
+  // Animate the fuse bar after it is rendered and measured (desktop)
+  useEffect(() => {
+    console.log('[DESKTOP FUSEBAR] wordWidth:', wordWidth, 'showFuseBar:', showFuseBar, 'word:', gameState.currentWord, 'wordKey:', gameState.wordKey);
+    if (showFuseBar && fuseBarRef.current && (wordWidth === undefined || wordWidth > 0)) {
+      fuseBarRef.current.style.transition = 'none';
+      fuseBarRef.current.style.transform = 'scaleX(1)';
+      setTimeout(() => {
+        if (fuseBarRef.current) {
+          fuseBarRef.current.style.transition = `transform linear ${gameState.fuseMaxTime}s`;
+          fuseBarRef.current.style.transform = 'scaleX(0)';
+        }
+      }, 20);
+    }
+  }, [showFuseBar, gameState.wordKey, wordWidth]);
+
+  const [showBgImage, setShowBgImage] = useState(false);
+
+  useEffect(() => {
+    if (showCountdown === false) {
+      const timeout = setTimeout(() => setShowBgImage(true), 150);
+      return () => clearTimeout(timeout);
+    } else {
+      setShowBgImage(false);
+    }
+  }, [showCountdown]);
+
   if (currentPage === 'game') {
+    // Use mobile game screen on mobile devices
+    if (isMobile) {
+      // MobileGameScreen must block word/fuse bar rendering until countdown is done and dummy word is skipped.
+      // TODO: In MobileGameScreen, add debug logging and logic to only show the real word/fuse bar after countdown.
+      return (
+        <>
+          <CountdownOverlay />
+          <MobileGameScreen
+            gameState={gameState}
+            lobby={lobby}
+            playerId={playerId}
+            selectedLanguage={selectedLanguage}
+            translationInput={translationInput}
+            setTranslationInput={setTranslationInput}
+            handleTranslationSubmit={handleTranslationSubmit}
+            isInputShaking={isInputShaking}
+            showFuseBar={showFuseBar}
+            fuseBarRef={fuseBarRef}
+            handleFuseTransitionEnd={handleFuseTransitionEnd}
+            onWordAnimationEnd={(animationName) => {
+              console.log('🎬 Animation ended:', animationName)
+              console.log('🔍 Current wordAnimation state:', gameState.wordAnimation)
+              if (animationName === 'word-fly-out') {
+                handleWordFlyOutEnd()
+              } else if (animationName === 'word-drop-down') {
+                handleWordDropDownEnd()
+              } else if (animationName === 'drop-in') {
+                handleWordDropInEnd()
+              }
+            }}
+            overtakeAnimation={overtakeAnimation}
+            overtakingPlayerId={overtakingPlayerId}
+            overtakenPlayerId={overtakenPlayerId}
+            onOvertakeAnimationEnd={(animationName) => {
+              if (animationName === 'overtake-slide-up') {
+                handleOvertakeSlideUpEnd()
+              } else if (animationName === 'overtake-slide-down') {
+                handleOvertakeSlideDownEnd()
+              }
+            }}
+            showCountdown={showCountdown}
+            dummyWordReady={dummyWordReady}
+            skipDummyWord={skipDummyWord}
+          />
+        </>
+      )
+    }
+
+    // Desktop game screen (original)
     const backgroundImage = selectedLanguage === 'fr' ? '/fr_bg.webp' : '/sv_bg.webp'
     const fusePercentage = (gameState.fuseTime / gameState.fuseMaxTime) * 100
     
@@ -1066,122 +1407,161 @@ function App() {
     // Sort players by score (highest first)
     const sortedPlayers = lobby?.players.sort((a, b) => (b.score || 0) - (a.score || 0)) || []
     
+    if (showCountdown !== false || !showBgImage) {
+      return (
+        <>
+          <CountdownOverlay />
+          <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#1f2937' }} />
+        </>
+      );
+    }
     return (
-      <div 
-        className="min-h-screen bg-cover bg-center bg-no-repeat flex flex-col"
-        style={{ backgroundImage: `url(${backgroundImage})` }}
-      >
-        {/* Scoreboard */}
-        <div className="p-6">
-          <div className="relative max-w-xs" style={{ height: `${sortedPlayers.length * 48}px` }}>
-            {(() => {
-              console.log('🎨 RENDERING LEADERBOARD')
-              console.log('Current overtakeAnimation:', overtakeAnimation)
-              console.log('Overtaking player:', overtakingPlayerId)
-              console.log('Overtaken player:', overtakenPlayerId)
-              console.log('Sorted players:', sortedPlayers)
-              return sortedPlayers.map((player, index) => {
-                const isOvertaking = player.id === overtakingPlayerId && overtakeAnimation === 'slide-up'
-                const isOvertaken = player.id === overtakenPlayerId && overtakeAnimation === 'slide-down'
-                console.log(`🎨 Rendering player ${player.name}: isOvertaking=${isOvertaking}, isOvertaken=${isOvertaken}, position=${index}`)
-                return (
-                  <div 
-                    key={player.id} 
-                    className={`absolute left-0 right-0 flex justify-between items-center px-4 py-2 rounded-lg transition-all duration-500 ease-out ${
-                      index === 0 ? 'bg-gray-800/80' : 
-                      index === 1 ? 'bg-gray-700/80' : 
-                      'bg-gray-600/80'
-                    } ${isOvertaking ? 'animate-overtake-slide-up' : ''} ${isOvertaken ? 'animate-overtake-slide-down' : ''}`}
-                    style={{
-                      top: `${index * 48}px`,
-                      zIndex: isOvertaking ? 10 : isOvertaken ? 1 : 1
-                    }}
+      <>
+        <CountdownOverlay />
+        <div 
+          className="min-h-screen bg-cover bg-center bg-no-repeat flex flex-col"
+          style={{ backgroundImage: `url(${backgroundImage})`, backgroundColor: '#1f2937' }}
+        >
+          {/* Scoreboard */}
+          <div className="p-6">
+            <div className="relative max-w-xs" style={{ height: `${sortedPlayers.length * 48}px` }}>
+              {(() => {
+                console.log('🎨 RENDERING LEADERBOARD')
+                console.log('Current overtakeAnimation:', overtakeAnimation)
+                console.log('Overtaking player:', overtakingPlayerId)
+                console.log('Overtaken player:', overtakenPlayerId)
+                console.log('Sorted players:', sortedPlayers)
+                return sortedPlayers.map((player, index) => {
+                  const isOvertaking = player.id === overtakingPlayerId && overtakeAnimation === 'slide-up'
+                  const isOvertaken = player.id === overtakenPlayerId && overtakeAnimation === 'slide-down'
+                  console.log(`🎨 Rendering player ${player.name}: isOvertaking=${isOvertaking}, isOvertaken=${isOvertaken}, position=${index}`)
+                  return (
+                    <div 
+                      key={player.id} 
+                      className={`absolute left-0 right-0 flex justify-between items-center px-4 py-2 rounded-lg transition-all duration-500 ease-out ${
+                        index === 0 ? 'bg-gray-800/80' : 
+                        index === 1 ? 'bg-gray-700/80' : 
+                        'bg-gray-600/80'
+                      } ${isOvertaking ? 'animate-overtake-slide-up' : ''} ${isOvertaken ? 'animate-overtake-slide-down' : ''}`}
+                      style={{
+                        top: `${index * 48}px`,
+                        zIndex: isOvertaking ? 10 : isOvertaken ? 1 : 1
+                      }}
+                      onAnimationEnd={(event) => {
+                        const animationName = event.animationName
+                        if (animationName === 'overtake-slide-up') {
+                          handleOvertakeSlideUpEnd()
+                        } else if (animationName === 'overtake-slide-down') {
+                          handleOvertakeSlideDownEnd()
+                        }
+                      }}
+                    >
+                      <span className="text-white font-medium">{player.name}</span>
+                      <span className="text-white font-bold">{player.score || 0}</span>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+
+          {/* Floating word */}
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <div className="text-center">
+              {(!skipDummyWord || showCountdown !== false) ? (
+                <div style={{ height: 64 }} /> // Blocked: render empty space for layout
+              ) : (
+                <>
+                  <h1
+                    ref={wordRef}
+                    key={`word-${gameState.wordKey}-${gameState.wordAnimation}`}
+                    className={`font-bold text-white drop-shadow-2xl break-words text-4xl sm:text-5xl md:text-6xl lg:text-7xl ${
+                      gameState.wordAnimation === 'fly-out' ? 'animate-word-fly-out' :
+                      gameState.wordAnimation === 'drop-down' ? 'animate-word-drop-down' :
+                      gameState.wordAnimation === 'drop-in' ? 'animate-drop-in' :
+                      gameState.wordAnimation === 'hidden' ? 'animate-hidden' :
+                      ''
+                    }`}
                     onAnimationEnd={(event) => {
-                      const animationName = event.animationName
-                      if (animationName === 'overtake-slide-up') {
-                        handleOvertakeSlideUpEnd()
-                      } else if (animationName === 'overtake-slide-down') {
-                        handleOvertakeSlideDownEnd()
+                      const animationName = event.animationName;
+                      // Use the same handler as mobile
+                      if (animationName === 'word-fly-out') {
+                        handleWordFlyOutEnd();
+                      } else if (animationName === 'word-drop-down') {
+                        handleWordDropDownEnd();
+                      } else if (animationName === 'drop-in') {
+                        handleWordDropInEnd();
                       }
                     }}
+                    style={{ display: 'inline-block', minWidth: 1 }}
                   >
-                    <span className="text-white font-medium">{player.name}</span>
-                    <span className="text-white font-bold">{player.score || 0}</span>
-                  </div>
-                )
-              })
-            })()}
+                    {getDisplayWord()}
+                  </h1>
+                  {/* Fuse timer - matches word width, fallback to 100% if needed */}
+                  {showFuseBar && (
+                    <div className="relative mx-auto mt-2" style={{ width: wordWidth && wordWidth > 0 ? wordWidth : '100%' }}>
+                      <div className="relative h-0.5 flex items-center justify-center">
+                        <div
+                          ref={fuseBarRef}
+                          className="absolute left-0 top-0 h-0.5 w-full bg-white rounded-full transition-transform"
+                          style={{
+                            transformOrigin: 'center',
+                            transform: 'scaleX(1)',
+                          }}
+                          onTransitionEnd={handleFuseTransitionEnd}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Floating word */}
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="text-center">
-            {(
-              <h1 
-                key={`word-${gameState.wordKey}-${gameState.wordAnimation}`}
-                className={`text-8xl md:text-9xl font-bold text-white mb-8 drop-shadow-2xl ${
-                  gameState.wordAnimation === 'fly-out' ? 'animate-word-fly-out' :
-                  gameState.wordAnimation === 'drop-down' ? 'animate-word-drop-down' :
-                  gameState.wordAnimation === 'drop-in' ? 'animate-drop-in' :
-                  gameState.wordAnimation === 'hidden' ? 'animate-hidden' :
-                  ''
+          {/* Translation input */}
+          <div className="mt-0 mb-16 flex justify-center">
+            <div className="w-full max-w-2xl">
+              <input
+                type="text"
+                placeholder={selectedLanguage === 'fr' ? 'översätt till svenska' : 'traduire en français'}
+                value={translationInput}
+                onChange={(e) => setTranslationInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleTranslationSubmit()}
+                className={`w-full bg-white/80 border-2 border-white/40 text-gray-900 placeholder-gray-500 py-4 px-8 rounded-lg text-xl focus:outline-none focus:border-white/60 transition-all duration-200 shadow-lg ${
+                  isInputShaking ? 'animate-shake' : ''
                 }`}
-                onAnimationEnd={(event) => {
-                  const animationName = event.animationName
-                  console.log('🎬 Animation ended:', animationName)
-                  console.log('🔍 Current wordAnimation state:', gameState.wordAnimation)
-                  if (animationName === 'word-fly-out') {
-                    handleWordFlyOutEnd()
-                  } else if (animationName === 'word-drop-down') {
-                    handleWordDropDownEnd()
-                  } else if (animationName === 'drop-in') {
-                    handleWordDropInEnd()
-                  }
-                }}
-              >
-                {getDisplayWord()}
-              </h1>
-            )}
-            {/* Fuse timer - thin white line under the word, burning from both ends toward the center */}
-            {showFuseBar && (
-              <div className="relative w-full max-w-2xl mx-auto mt-2">
-                <div className="relative h-1 flex items-center justify-center">
-                  <div
-                    ref={fuseBarRef}
-                    className="absolute left-0 top-0 h-1 w-full bg-white rounded transition-transform"
-                    style={{
-                      transformOrigin: 'center',
-                      transform: 'scaleX(1)',
-                    }}
-                    onTransitionEnd={handleFuseTransitionEnd}
-                  />
-                </div>
-              </div>
-            )}
+              />
+            </div>
           </div>
         </div>
-
-        {/* Translation input */}
-        <div className="mt-0 mb-16 flex justify-center">
-          <div className="w-full max-w-2xl">
-            <input
-              type="text"
-              placeholder={selectedLanguage === 'fr' ? 'översätt till svenska' : 'traduire en français'}
-              value={translationInput}
-              onChange={(e) => setTranslationInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleTranslationSubmit()}
-              className={`w-full bg-white/80 border-2 border-white/40 text-gray-900 placeholder-gray-500 py-4 px-8 rounded-lg text-xl focus:outline-none focus:border-white/60 transition-all duration-200 shadow-lg ${
-                isInputShaking ? 'animate-shake' : ''
-              }`}
-            />
-          </div>
-        </div>
-      </div>
+      </>
     )
   }
 
   if (currentPage === 'lobby') {
+    // Use mobile lobby screen on mobile devices
+    if (isMobile) {
+      return (
+        <MobileLobbyScreen
+          lobby={lobby}
+          playerId={playerId}
+          isHost={isHost}
+          chatMessages={chatMessages}
+          chatMessage={chatMessage}
+          setChatMessage={setChatMessage}
+          sendChatMessage={sendChatMessage}
+          toggleReady={toggleReady}
+          selectedDifficulty={selectedDifficulty}
+          updateDifficulty={updateDifficulty}
+          selectedMaxScore={selectedMaxScore}
+          updateMaxScore={updateMaxScore}
+          startGame={startGame}
+          copyInviteLink={copyInviteLink}
+        />
+      )
+    }
+
+    // Desktop lobby screen (original)
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-8">
         {/* Main container */}
@@ -1218,11 +1598,7 @@ function App() {
               {lobby?.players.map((player) => (
                 <div key={player.id} className="flex items-center space-x-3">
                   <div className="flex items-center justify-center w-4 h-4">
-                    {player.ready ? (
-                      <span className="text-green-400 text-xs">✓</span>
-                    ) : (
-                      <span className="text-gray-500 text-xs">○</span>
-                    )}
+                    <span className="text-xs" style={{ color: player.ready ? '#f59e0b' : '#6b7280' }}>{player.ready ? '✓' : '○'}</span>
                   </div>
                   <span className="text-white text-sm">{player.name}</span>
                   <span className="text-lg">
@@ -1244,9 +1620,10 @@ function App() {
                   onClick={toggleReady}
                   className={`relative w-14 h-6 bg-gray-600 rounded-full transition-all duration-200 ease-out ${
                     lobby?.players.find(p => p.id === playerId)?.ready
-                      ? 'bg-green-600' 
+                      ? '' // remove green-600
                       : 'bg-gray-600'
                   }`}
+                  style={{ backgroundColor: lobby?.players.find(p => p.id === playerId)?.ready ? '#f59e0b' : undefined }}
                   title="Toggle Ready"
                 >
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all duration-200 ease-out ${
@@ -1370,8 +1747,11 @@ function App() {
   }
 
   if (currentPage === 'game_summary' && gameSummary) {
+    if (isMobile) {
+      return <MobileGameSummary gameSummary={gameSummary} isHost={isHost} playAgain={playAgain} selectedLanguage={selectedLanguage} />
+    }
     const backgroundImage = selectedLanguage === 'fr' ? '/fr_bg.webp' : '/sv_bg.webp'
-    
+    const amber = '#f59e0b'
     return (
       <div 
         className="min-h-screen bg-cover bg-center bg-no-repeat flex flex-col"
@@ -1382,7 +1762,7 @@ function App() {
           <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg p-8 max-w-2xl w-full">
             {/* Winner Section */}
             <div className="text-center mb-8">
-              <div className="text-3xl font-bold text-white mb-2">
+              <div className="text-3xl font-bold text-white mb-2" style={{ color: amber }}>
                 {gameSummary.winner} wins!
               </div>
             </div>
@@ -1390,29 +1770,29 @@ function App() {
             {/* Word History Section */}
             <div className="bg-gray-700/50 rounded-lg p-6 mb-6">
               <h3 className="text-xl font-semibold text-white mb-4">Game History</h3>
-              <div className="space-y-1 max-h-64 overflow-y-auto">
+              <div className="space-y-1 max-h-64 overflow-y-auto overflow-x-auto">
                 {gameSummary.word_history.map((wordData, index) => (
                   <div 
                     key={index} 
-                    className={`py-2 px-3 rounded flex justify-between items-center ${
+                    className={`py-2 px-3 rounded flex flex-wrap justify-between items-center ${
                       wordData.status === 'correct' 
-                        ? index % 2 === 0 ? 'bg-green-600/20' : 'bg-green-600/10'
+                        ? index % 2 === 0 ? 'bg-amber-500/20' : 'bg-amber-500/10'
                         : index % 2 === 0 ? 'bg-red-600/20' : 'bg-red-600/10'
                     }`}
                   >
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-3 min-w-0">
                       <span className="text-sm text-gray-400 w-8">#{index + 1}</span>
-                      <span className="text-white font-medium">{wordData.word}</span>
+                      <span className="text-white font-medium truncate max-w-[80px]">{wordData.word}</span>
                       {wordData.winner && (
-                        <span className="text-green-400 text-sm">✓ {wordData.winner}</span>
+                        <span className="text-sm" style={{ color: amber }}>✓ {wordData.winner}</span>
                       )}
                       {wordData.status === 'timeout' && (
                         <span className="text-red-400 text-sm">⏰ Timeout</span>
                       )}
                     </div>
-                    <div className="flex space-x-6 text-xs">
-                      <span className="text-gray-300 w-20 text-left">{wordData.translations.sv}</span>
-                      <span className="text-gray-300 w-20 text-right">{wordData.translations.fr}</span>
+                    <div className="flex flex-1 min-w-0 space-x-2 text-xs justify-end">
+                      <span className="text-gray-300 flex-1 truncate text-left w-auto max-w-[100px]">{wordData.translations.sv}</span>
+                      <span className="text-gray-300 flex-1 truncate text-right w-auto max-w-[100px]">{wordData.translations.fr}</span>
                     </div>
                   </div>
                 ))}
@@ -1430,9 +1810,10 @@ function App() {
                       key={player.id} 
                       className={`flex justify-between items-center p-3 rounded ${
                         player.id === gameSummary.winner_id 
-                          ? 'bg-green-600/30 border border-green-500/50' 
+                          ? 'bg-amber-500/30 border' 
                           : 'bg-gray-700/50'
                       }`}
+                      style={player.id === gameSummary.winner_id ? { borderColor: amber } : {}}
                     >
                       <div className="flex items-center space-x-3">
                         <span className="text-lg font-bold text-gray-400">#{index + 1}</span>
@@ -1469,6 +1850,21 @@ function App() {
   }
 
   if (currentPage === 'setup') {
+    // Use mobile setup screen on mobile devices
+    if (isMobile) {
+      return (
+        <MobileSetupScreen
+          playerName={playerName}
+          setPlayerName={setPlayerName}
+          selectedLanguage={selectedLanguage}
+          setSelectedLanguage={setSelectedLanguage}
+          onContinue={() => lobbyId ? joinLobby() : createLobby()}
+          canContinue={!!canContinue}
+        />
+      )
+    }
+
+    // Desktop setup screen (original)
     return (
       <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center px-4">
         <div className="text-center max-w-md mx-auto w-full">

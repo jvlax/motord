@@ -1,23 +1,37 @@
 // API Configuration
 const getApiBaseUrl = () => {
-  // Check if we're in production by looking at the hostname
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return window.location.origin
+  const hostname = window.location.hostname
+  
+  // Local development - localhost or 127.0.0.1
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8000'
   }
   
-  // In development, use localhost
-  return 'http://localhost:8000'
+  // Local network access (like 192.168.x.x) - use same IP but port 8000
+  if (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+    return `http://${hostname}:8000`
+  }
+  
+  // Production (actual domain) - same origin
+  return window.location.origin
 }
 
 const getWebSocketUrl = () => {
-  // Check if we're in production by looking at the hostname
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}`
+  const hostname = window.location.hostname
+  
+  // Local development - localhost or 127.0.0.1
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'ws://localhost:8000'
   }
   
-  // In development, use localhost
-  return 'ws://localhost:8000'
+  // Local network access (like 192.168.x.x) - use same IP but port 8000
+  if (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+    return `ws://${hostname}:8000`
+  }
+  
+  // Production (actual domain) - same origin with WebSocket protocol
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}`
 }
 
 export const API_BASE_URL = getApiBaseUrl()
