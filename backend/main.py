@@ -593,13 +593,16 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
         
         # Check if game should end (total correct words reached max_words)
         if game_state.total_correct_words >= lobby.max_words:
-            # Game ended - broadcast game end message
+            # Game ended - find the winner (player with highest score)
             game_state.is_active = False
+            
+            # Find the player with the highest score
+            winner = max(lobby.players, key=lambda p: p.score)
             
             broadcast_message = {
                 "type": "game_ended",
-                "winner": player.name,
-                "winner_id": player_id,
+                "winner": winner.name,
+                "winner_id": winner.id,
                 "max_words": lobby.max_words,
                 "word_history": game_state.word_history,
                 "players": [{
@@ -738,7 +741,14 @@ async def handle_timeout(lobby_id: str):
     lobby = lobbies[lobby_id]
     game_state = game_states[lobby_id]
     
-    # DO NOT add timeout to word_history - only track correct guesses
+    # Add timeout to word history
+    game_state.word_history.append({
+        "word": game_state.current_word,
+        "translations": game_state.current_word_translations,
+        "status": "timeout",
+        "winner": None,
+        "time_taken": None
+    })
     
     # Reset all player streaks on timeout
     for player in lobby.players:
