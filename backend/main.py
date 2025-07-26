@@ -10,7 +10,7 @@ import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 import uuid
 import json
@@ -63,6 +63,7 @@ class Lobby(BaseModel):
     max_words: int = 10  # Changed from max_score to max_words
     created_at: datetime
     invite_code: str
+    last_activity: datetime = Field(default_factory=datetime.now)
 
 class GameState(BaseModel):
     current_word: str
@@ -88,6 +89,7 @@ active_connections: Dict[str, List[WebSocket]] = {}
 player_connections: Dict[str, WebSocket] = {}  # Map player_id to WebSocket connection
 player_heartbeats: Dict[str, datetime] = {}  # Track last heartbeat for each player
 game_states: Dict[str, GameState] = {}  # Game state for each lobby
+still_playing_pending: Dict[str, datetime] = {}
 
 # Load word data from merged translated wordlist
 WORDS_DATA = []
@@ -144,7 +146,21 @@ def get_random_word(difficulty: int) -> Dict:
             "translation_fr": "bonjour"
         }
     
-    return random.choice(available_words)
+    word_data = random.choice(available_words)
+    # Normalize all words to lowercase for consistent display
+    word_data["word"] = word_data["word"].lower()
+    word_data["translation_sv"] = word_data.get("translation_sv", "").lower()
+    word_data["translation_fr"] = word_data.get("translation_fr", "").lower()
+    
+    # Also normalize alternates if they exist
+    if "alternates" in word_data:
+        for lang in ["fr", "sv"]:
+            if lang in word_data["alternates"]:
+                for alt in word_data["alternates"][lang]:
+                    alt["translation_fr"] = alt.get("translation_fr", "").lower()
+                    alt["translation_sv"] = alt.get("translation_sv", "").lower()
+    
+    return word_data
 
 def verify_translation(input_word: str, player_language: str, current_word_data: Dict) -> bool:
     """Check if the translation is correct. Player must translate to the *other* language."""
@@ -159,10 +175,28 @@ def verify_translation(input_word: str, player_language: str, current_word_data:
     else:
         correct_translation = ""
         alternates = []
+    
     normalized_correct = normalize_word(correct_translation)
-    normalized_alternates = [normalize_word(a) for a in alternates]
-    match = normalized_input == normalized_correct or normalized_input in normalized_alternates
-    print(f"Translation check: input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', correct='{correct_translation}' -> '{normalized_correct}', alternates={normalized_alternates}, match={match}")
+    
+    # Extract translation values from alternate objects
+    alternate_translations = []
+    for alt in alternates:
+        if player_language == "fr":
+            alt_translation = alt.get("translation_sv", "")
+        else:  # player_language == "sv"
+            alt_translation = alt.get("translation_fr", "")
+        if alt_translation:
+            alternate_translations.append(normalize_word(alt_translation))
+    
+    # Check if input matches main translation or any alternate
+    match = normalized_input == normalized_correct or normalized_input in alternate_translations
+    
+    # Log when alternates are used for correct guesses
+    if match and normalized_input != normalized_correct:
+        print(f"🎯 ALTERNATE USED: word='{current_word_data.get('word', '')}', input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', main_translation='{correct_translation}' -> '{normalized_correct}', matched_alternate='{normalized_input}', all_alternates={alternate_translations}")
+    else:
+        print(f"Translation check: input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', correct='{correct_translation}' -> '{normalized_correct}', alternates={alternate_translations}, match={match}")
+    
     return match
 
 def generate_invite_code() -> str:
@@ -188,6 +222,10 @@ def calculate_total_points(base_points: int, time_bonus: int, streak_multiplier:
     """Calculate total points for a correct guess"""
     total_before_multiplier = base_points + time_bonus
     return total_before_multiplier * streak_multiplier
+
+def update_lobby_activity(lobby_id: str):
+    if lobby_id in lobbies:
+        lobbies[lobby_id].last_activity = datetime.now()
 
 @app.get("/")
 def root():
@@ -221,6 +259,7 @@ async def create_lobby(player_name: str = Form(...), language: str = Form(...)):
     
     lobbies[lobby_id] = lobby
     active_connections[lobby_id] = []
+    update_lobby_activity(lobby_id)
     
     return {
         "lobby_id": lobby_id,
@@ -292,6 +331,7 @@ async def join_lobby(lobby_id: str, player_name: str = Form(...), language: str 
     )
     
     lobby.players.append(player)
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     print(f"=== BACKEND: PLAYER JOINED ===")
@@ -347,6 +387,7 @@ async def toggle_player_ready(lobby_id: str, player_id: str):
         raise HTTPException(status_code=404, detail="Player not found")
     
     player.ready = not player.ready
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     print(f"=== BACKEND: PLAYER READY CHANGED ===")
@@ -377,6 +418,7 @@ async def update_difficulty(lobby_id: str, player_id: str = Form(...), difficult
         raise HTTPException(status_code=403, detail="Only host can change difficulty")
     
     lobby.difficulty = difficulty
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     await broadcast_to_lobby(lobby_id, {
@@ -401,6 +443,7 @@ async def update_max_words(lobby_id: str, player_id: str = Form(...), max_words:
         raise HTTPException(status_code=400, detail="Max words must be at least 1")
     
     lobby.max_words = max_words
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     await broadcast_to_lobby(lobby_id, {
@@ -434,7 +477,7 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
     
     # Get initial word
     word_data = get_random_word(lobby.difficulty)
-    current_word = word_data["word"]
+    current_word = word_data["word"]  # Already lowercase from get_random_word
     current_word_language = "en"
     current_word_translations = {
         "sv": word_data.get("translation_sv", ""),
@@ -453,11 +496,12 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
     )
     
     game_states[lobby_id] = game_state
+    update_lobby_activity(lobby_id)
     
     # Broadcast game started message
     await broadcast_to_lobby(lobby_id, {
         "type": "game_started",
-        "current_word": current_word,
+        "current_word": current_word,  # Already lowercase from above
         "current_word_language": current_word_language,
         "current_word_translations": current_word_translations,
         "players": [{
@@ -513,6 +557,7 @@ async def play_again(lobby_id: str, request: Request):
         } for p in lobby.players]
     })
     print(f"[FUSEBAR-BACKEND] Broadcasted play_again for lobby {lobby_id}.")
+    update_lobby_activity(lobby_id)
     
     return {"status": "game_reset"}
 
@@ -533,12 +578,13 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     
     game_state = game_states[lobby_id]
     
-    # Use the game state's current word and translations
-    current_word_data = {
+    # Get the full word data from the loaded wordlist (including alternates)
+    current_word_data = next((word for word in WORDS_DATA if word.get("word") == game_state.current_word), {
         "word": game_state.current_word,
         "translation_sv": game_state.current_word_translations.get("sv", ""),
-        "translation_fr": game_state.current_word_translations.get("fr", "")
-    }
+        "translation_fr": game_state.current_word_translations.get("fr", ""),
+        "alternates": {"fr": [], "sv": []}
+    })
     
     # Check if translation is correct
     is_correct = verify_translation(translation, player.language, current_word_data)
@@ -632,7 +678,7 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             "fr": new_word_data.get("translation_fr", "")
         }
         
-        game_state.current_word = new_word_data["word"]
+        game_state.current_word = new_word_data["word"]  # Already lowercase from get_random_word
         game_state.current_word_language = current_word_language
         game_state.current_word_translations = current_word_translations
         game_state.word_start_time = datetime.now()  # Set start time for new word
@@ -647,7 +693,7 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             "streak": player.streak,
             "time_bonus": time_bonus,
             "streak_multiplier": streak_multiplier,
-            "new_word": new_word_data["word"],
+            "new_word": new_word_data["word"],  # Already lowercase from get_random_word
             "new_word_language": current_word_language,
             "new_word_translations": current_word_translations,
             "players": [{
@@ -706,6 +752,7 @@ async def leave_lobby(lobby_id: str, player_id: str):
     
     # Remove player from lobby
     lobby.players = [p for p in lobby.players if p.id != player_id]
+    update_lobby_activity(lobby_id)
     
     # If no players left, delete the lobby
     if not lobby.players:
@@ -753,6 +800,7 @@ async def handle_timeout(lobby_id: str):
     # Reset all player streaks on timeout
     for player in lobby.players:
         player.streak = 0
+    # update_lobby_activity(lobby_id) # REMOVED
     
     # Get new word
     new_word_data = get_random_word(lobby.difficulty)
@@ -762,7 +810,7 @@ async def handle_timeout(lobby_id: str):
         "fr": new_word_data.get("translation_fr", "")
     }
     
-    game_state.current_word = new_word_data["word"]
+    game_state.current_word = new_word_data["word"]  # Already lowercase from get_random_word
     game_state.current_word_language = current_word_language
     game_state.current_word_translations = current_word_translations
     game_state.word_start_time = datetime.now()  # Set start time for new word
@@ -770,7 +818,7 @@ async def handle_timeout(lobby_id: str):
     # Broadcast timeout and new word
     broadcast_message = {
         "type": "timeout",
-        "new_word": new_word_data["word"],
+        "new_word": new_word_data["word"],  # Already lowercase from get_random_word
         "new_word_language": current_word_language,
         "new_word_translations": current_word_translations,
         "players": [{
@@ -856,6 +904,27 @@ async def cleanup_disconnected_players():
                 "player_name": player.name
             })
         
+        # Inactivity check (set to 5 minutes for production)
+        inactivity_timeout = timedelta(seconds=300)
+        popup_timeout = timedelta(seconds=30)
+        now = datetime.now()
+        if lobby_id in still_playing_pending:
+            # Already waiting for response
+            popup_sent_time = still_playing_pending[lobby_id]
+            if now - popup_sent_time > popup_timeout:
+                print(f"Lobby {lobby_id} inactive for 30s after popup, deleting lobby.")
+                del lobbies[lobby_id]
+                if lobby_id in active_connections:
+                    del active_connections[lobby_id]
+                if lobby_id in game_states:
+                    del game_states[lobby_id]
+                del still_playing_pending[lobby_id]
+            continue
+        if now - lobby.last_activity > inactivity_timeout:
+            print(f"Lobby {lobby_id} inactive for 5 minutes, sending still_playing popup.")
+            await broadcast_to_lobby(lobby_id, {"type": "still_playing", "timeout": 30})
+            still_playing_pending[lobby_id] = now
+
         # Only delete lobby if no players left AND no active connections
         if not lobby.players and (lobby_id not in active_connections or not active_connections[lobby_id]):
             print(f"Deleting empty lobby {lobby_id} (no players and no active connections)")
@@ -888,6 +957,7 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
             
             # Handle different message types
             if message.get("type") == "chat":
+                update_lobby_activity(lobby_id)
                 if lobby_id in lobbies:
                     lobby = lobbies[lobby_id]
                     player = next((p for p in lobby.players if p.id == message.get("player_id")), None)
@@ -925,6 +995,7 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                         
                         # Remove player from lobby
                         lobby.players = [p for p in lobby.players if p.id != player_id]
+                        update_lobby_activity(lobby_id)
                         
                         # Clean up tracking
                         if player_id in player_connections:
@@ -957,6 +1028,15 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                             })
                         
                         print(f"Player {player.name} ({player_id}) left lobby {lobby_id} gracefully")
+                
+            elif message.get("type") == "still_playing_response":
+                # Player clicked yes, reset last_activity and remove pending
+                update_lobby_activity(lobby_id)
+                if lobby_id in still_playing_pending:
+                    del still_playing_pending[lobby_id]
+                print(f"Lobby {lobby_id} received still_playing_response, activity reset.")
+                # Broadcast to all players to clear the popup
+                await broadcast_to_lobby(lobby_id, {"type": "still_playing_cleared"})
                 
     except WebSocketDisconnect:
         print(f"WebSocket disconnected from lobby {lobby_id}")

@@ -396,8 +396,8 @@ export const MobileGameScreen: React.FC<MobileGameScreenProps> = ({
         <div style={{
           position: 'fixed',
           top: 0,
-          left: 0,
-          right: 0,
+          left: '15%',
+          right: '15%',
           zIndex: 1001,
           background: 'none',
           borderBottom: '1px solid rgba(255,255,255,0.10)',
