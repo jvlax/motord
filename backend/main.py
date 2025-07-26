@@ -144,7 +144,21 @@ def get_random_word(difficulty: int) -> Dict:
             "translation_fr": "bonjour"
         }
     
-    return random.choice(available_words)
+    word_data = random.choice(available_words)
+    # Normalize all words to lowercase for consistent display
+    word_data["word"] = word_data["word"].lower()
+    word_data["translation_sv"] = word_data.get("translation_sv", "").lower()
+    word_data["translation_fr"] = word_data.get("translation_fr", "").lower()
+    
+    # Also normalize alternates if they exist
+    if "alternates" in word_data:
+        for lang in ["fr", "sv"]:
+            if lang in word_data["alternates"]:
+                for alt in word_data["alternates"][lang]:
+                    alt["translation_fr"] = alt.get("translation_fr", "").lower()
+                    alt["translation_sv"] = alt.get("translation_sv", "").lower()
+    
+    return word_data
 
 def verify_translation(input_word: str, player_language: str, current_word_data: Dict) -> bool:
     """Check if the translation is correct. Player must translate to the *other* language."""
@@ -159,10 +173,28 @@ def verify_translation(input_word: str, player_language: str, current_word_data:
     else:
         correct_translation = ""
         alternates = []
+    
     normalized_correct = normalize_word(correct_translation)
-    normalized_alternates = [normalize_word(a) for a in alternates]
-    match = normalized_input == normalized_correct or normalized_input in normalized_alternates
-    print(f"Translation check: input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', correct='{correct_translation}' -> '{normalized_correct}', alternates={normalized_alternates}, match={match}")
+    
+    # Extract translation values from alternate objects
+    alternate_translations = []
+    for alt in alternates:
+        if player_language == "fr":
+            alt_translation = alt.get("translation_sv", "")
+        else:  # player_language == "sv"
+            alt_translation = alt.get("translation_fr", "")
+        if alt_translation:
+            alternate_translations.append(normalize_word(alt_translation))
+    
+    # Check if input matches main translation or any alternate
+    match = normalized_input == normalized_correct or normalized_input in alternate_translations
+    
+    # Log when alternates are used for correct guesses
+    if match and normalized_input != normalized_correct:
+        print(f"🎯 ALTERNATE USED: word='{current_word_data.get('word', '')}', input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', main_translation='{correct_translation}' -> '{normalized_correct}', matched_alternate='{normalized_input}', all_alternates={alternate_translations}")
+    else:
+        print(f"Translation check: input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', correct='{correct_translation}' -> '{normalized_correct}', alternates={alternate_translations}, match={match}")
+    
     return match
 
 def generate_invite_code() -> str:
@@ -434,7 +466,7 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
     
     # Get initial word
     word_data = get_random_word(lobby.difficulty)
-    current_word = word_data["word"]
+    current_word = word_data["word"]  # Already lowercase from get_random_word
     current_word_language = "en"
     current_word_translations = {
         "sv": word_data.get("translation_sv", ""),
@@ -457,7 +489,7 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
     # Broadcast game started message
     await broadcast_to_lobby(lobby_id, {
         "type": "game_started",
-        "current_word": current_word,
+        "current_word": current_word,  # Already lowercase from above
         "current_word_language": current_word_language,
         "current_word_translations": current_word_translations,
         "players": [{
@@ -533,12 +565,13 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     
     game_state = game_states[lobby_id]
     
-    # Use the game state's current word and translations
-    current_word_data = {
+    # Get the full word data from the loaded wordlist (including alternates)
+    current_word_data = next((word for word in WORDS_DATA if word.get("word") == game_state.current_word), {
         "word": game_state.current_word,
         "translation_sv": game_state.current_word_translations.get("sv", ""),
-        "translation_fr": game_state.current_word_translations.get("fr", "")
-    }
+        "translation_fr": game_state.current_word_translations.get("fr", ""),
+        "alternates": {"fr": [], "sv": []}
+    })
     
     # Check if translation is correct
     is_correct = verify_translation(translation, player.language, current_word_data)
@@ -632,7 +665,7 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             "fr": new_word_data.get("translation_fr", "")
         }
         
-        game_state.current_word = new_word_data["word"]
+        game_state.current_word = new_word_data["word"]  # Already lowercase from get_random_word
         game_state.current_word_language = current_word_language
         game_state.current_word_translations = current_word_translations
         game_state.word_start_time = datetime.now()  # Set start time for new word
@@ -647,7 +680,7 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             "streak": player.streak,
             "time_bonus": time_bonus,
             "streak_multiplier": streak_multiplier,
-            "new_word": new_word_data["word"],
+            "new_word": new_word_data["word"],  # Already lowercase from get_random_word
             "new_word_language": current_word_language,
             "new_word_translations": current_word_translations,
             "players": [{
@@ -762,7 +795,7 @@ async def handle_timeout(lobby_id: str):
         "fr": new_word_data.get("translation_fr", "")
     }
     
-    game_state.current_word = new_word_data["word"]
+    game_state.current_word = new_word_data["word"]  # Already lowercase from get_random_word
     game_state.current_word_language = current_word_language
     game_state.current_word_translations = current_word_translations
     game_state.word_start_time = datetime.now()  # Set start time for new word
@@ -770,7 +803,7 @@ async def handle_timeout(lobby_id: str):
     # Broadcast timeout and new word
     broadcast_message = {
         "type": "timeout",
-        "new_word": new_word_data["word"],
+        "new_word": new_word_data["word"],  # Already lowercase from get_random_word
         "new_word_language": current_word_language,
         "new_word_translations": current_word_translations,
         "players": [{
