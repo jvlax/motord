@@ -10,7 +10,37 @@ wordlists/wordlist-kids2.json
 unused_files/
 node_modules/
 
+# macOS system files
+.DS_Store
+**/.DS_Store
+
 # Vite cache
 .vite/
 
 # Infrastructure sensitive files are handled by infrastructure/.gitignore
+
+# Ignore local NLLB model files
+nllb-200-distilled-600M/
+nllb-200-3.3B/
+
+# Ignore all files in backend/wordlists except the merged wordlist
+backend/wordlists/*
+!backend/wordlists/efllex_wordlist_merged.jsonl
+
+# Ignore all local LLM/model files and caches
+backend/models/
+backend/xet.tar.gz
+/root/.cache/huggingface/
+/root/.cache/
+
+# Ignore all large translation artifacts except merged wordlist and scripts
+backend/wordlists/efllex_wordlist.jsonl
+backend/wordlists/efllex_wordlist_preprocessed.jsonl
+backend/wordlists/efllex_wordlist_translated.jsonl
+backend/wordlists/efllex_wordlist_translated.jsonl_first
+
+# Allow merged wordlist and scripts
+!backend/wordlists/efllex_wordlist_merged.jsonl
+!backend/wordlists/merge_duplicate_words.py
+!backend/wordlists/curate_low_freq_words.py
+!backend/wordlists/process_efllex_to_jsonl.py

@@ -15,6 +15,9 @@ interface Player {
   ready: boolean
   joined_at: string
   score?: number
+  streak?: number
+  highest_streak?: number
+  fastest_guess?: number
 }
 
 interface Lobby {
@@ -22,7 +25,7 @@ interface Lobby {
   host_id: string
   players: Player[]
   difficulty: number
-  max_score: number
+  max_words: number
   invite_code: string
 }
 
@@ -54,20 +57,27 @@ interface GameState {
 interface GameSummary {
   winner: string
   winner_id: string
-  max_score: number
+  max_words: number
   word_history: Array<{
     word: string
     translations: { sv: string, fr: string }
     winner?: string
     winner_id?: string
     time_taken: number
-    status: 'correct' | 'timeout'
+    status: 'correct' | 'timeout' | 'incorrect'
+    points_earned?: number
+    points_lost?: number
+    streak?: number
+    time_bonus?: number
+    streak_multiplier?: number
   }>
   players: Array<{
     id: string
     name: string
     score: number
     language: string
+    highest_streak: number
+    fastest_guess: number
   }>
 }
 
@@ -157,6 +167,25 @@ function App() {
         animation: word-fly-out 0.6s ease-out forwards;
       }
       
+      @keyframes word-fly-out-streak {
+        0% { 
+          transform: translateX(0);
+          opacity: 1;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% {
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+        100% { 
+          transform: translateX(100%);
+          opacity: 0;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+      }
+      .animate-word-fly-out-streak {
+        animation: word-fly-out-streak 0.6s ease-out forwards;
+      }
+      
       @keyframes word-drop-down {
         0% { 
           transform: translateY(0);
@@ -171,10 +200,73 @@ function App() {
         animation: word-drop-down 0.6s ease-out forwards;
       }
       
+      @keyframes word-drop-down-streak {
+        0% { 
+          transform: translateY(0);
+          opacity: 1;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% {
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+        100% { 
+          transform: translateY(100%);
+          opacity: 0;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+      }
+      .animate-word-drop-down-streak {
+        animation: word-drop-down-streak 0.6s ease-out forwards;
+      }
+      
+      @keyframes drop-in-streak {
+        0% { 
+          transform: translateY(-100px);
+          opacity: 0;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        100% { 
+          transform: translateY(0);
+          opacity: 1;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+      }
+      .animate-drop-in-streak {
+        animation: drop-in-streak 0.5s ease-out;
+      }
+      
       .animate-hidden {
         opacity: 0 !important;
         visibility: hidden !important;
         transform: translateY(0) !important;
+      }
+      
+      .streak-glow {
+        text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        animation: streak-pulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes streak-pulse {
+        0%, 100% { 
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% { 
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+      }
+      
+      .scoreboard-streak-glow {
+        box-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        animation: scoreboard-streak-pulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes scoreboard-streak-pulse {
+        0%, 100% { 
+          box-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% { 
+          box-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
       }
     `
     document.head.appendChild(style)
@@ -189,9 +281,9 @@ function App() {
   const [playerName, setPlayerName] = useState('')
   const [selectedLanguage, setSelectedLanguage] = useState('')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-  const [isMaxScoreDropdownOpen, setIsMaxScoreDropdownOpen] = useState(false)
+  const [isMaxWordsDropdownOpen, setIsMaxWordsDropdownOpen] = useState(false)
   const [selectedDifficulty, setSelectedDifficulty] = useState(2)
-  const [selectedMaxScore, setSelectedMaxScore] = useState(10)
+  const [selectedMaxWords, setSelectedMaxWords] = useState(10)
   const [chatMessage, setChatMessage] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [translationInput, setTranslationInput] = useState('')
@@ -246,12 +338,12 @@ function App() {
     { value: 4, label: 'Very Hard' }
   ]
 
-  const maxScoreOptions = [
-    { value: 5, label: '5 points' },
-    { value: 10, label: '10 points' },
-    { value: 15, label: '15 points' },
-    { value: 20, label: '20 points' },
-    { value: 25, label: '25 points' }
+  const maxWordsOptions = [
+    { value: 5, label: '5 words' },
+    { value: 10, label: '10 words' },
+    { value: 15, label: '15 words' },
+    { value: 20, label: '20 words' },
+    { value: 25, label: '25 words' }
   ]
 
   const canContinue = playerName.trim() && selectedLanguage
@@ -300,13 +392,15 @@ function App() {
   // Separate animation handlers for different word animations
   const handleWordFlyOutEnd = () => {
     console.log('🎬 Word fly-out animation ended')
+    console.log('🎬 Current game state before update:', gameState)
     // After fly-out, hide the word and apply new word content (but keep old wordKey)
     setGameState(prev => {
+      console.log('🎬 Previous state in fly-out handler:', prev)
       if (prev.pendingWordData) {
         console.log('🎯 Applying pending word data after fly-out:', prev.pendingWordData)
         // Generate a new wordKey for the new word
         const newWordKey = `${Date.now()}-${Math.random()}`
-        return {
+        const newState = {
           ...prev,
           currentWord: prev.pendingWordData.currentWord,
           currentWordLanguage: prev.pendingWordData.currentWordLanguage,
@@ -315,7 +409,10 @@ function App() {
           pendingWordData: undefined,
           wordKey: newWordKey
         }
+        console.log('🎬 New state after fly-out:', newState)
+        return newState
       }
+      console.log('🎬 No pending word data, just hiding')
       return {
         ...prev,
         wordAnimation: 'hidden' as const
@@ -324,6 +421,7 @@ function App() {
     
     // After a brief delay, trigger drop-in animation
     setTimeout(() => {
+      console.log('🎬 Triggering drop-in animation after fly-out')
       setGameState(prev => ({
         ...prev,
         wordAnimation: 'drop-in' as const
@@ -529,37 +627,37 @@ function App() {
   }, [gameState.currentWord, gameState.wordKey])
 
 
-  const handleTranslationSubmit = () => {
-    if (!translationInput.trim() || !lobby || !gameState.isGameActive) return
-    
-    // Send translation to backend
-    fetch(config.api.endpoints.translate(lobby.id, playerId), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: `translation=${encodeURIComponent(translationInput.trim())}`
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.correct) {
-        // Clear input on correct translation
-        setTranslationInput('')
-      } else {
-        // Shake input on incorrect translation
-        setIsInputShaking(true)
-        setTranslationInput('')
-        setTimeout(() => setIsInputShaking(false), 500) // Shake for 0.5 seconds
+  const handleTranslationSubmit = async () => {
+    if (!translationInput.trim() || !gameState.isGameActive) return;
+    if (!lobbyId || !playerId) return;
+
+    try {
+      const response = await fetch(config.api.endpoints.translate(lobbyId, playerId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ translation: translationInput })
+      });
+      if (!response.ok) {
+        setIsInputShaking(true);
+        setTranslationInput('');
+        setTimeout(() => setIsInputShaking(false), 500);
+        return;
       }
-    })
-    .catch(error => {
-      console.error('Error submitting translation:', error)
-      // Shake input on error too
-      setIsInputShaking(true)
-      setTranslationInput('')
-      setTimeout(() => setIsInputShaking(false), 500)
-    })
-  }
+      const data = await response.json();
+      if (data.correct) {
+        setTranslationInput('');
+        // The backend will broadcast the new word and update scores via WebSocket
+      } else {
+        setIsInputShaking(true);
+        setTranslationInput('');
+        setTimeout(() => setIsInputShaking(false), 500);
+      }
+    } catch (err) {
+      setIsInputShaking(true);
+      setTranslationInput('');
+      setTimeout(() => setIsInputShaking(false), 500);
+    }
+  };
 
   const rollNewWord = () => {
     // First, reset animation state to 'none' and update the word
@@ -740,9 +838,9 @@ function App() {
         setLobby(prevLobby => prevLobby ? { ...prevLobby, difficulty: data.difficulty } : prevLobby)
         setSelectedDifficulty(data.difficulty)
         break
-      case 'max_score_changed':
-        setLobby(prevLobby => prevLobby ? { ...prevLobby, max_score: data.max_score } : prevLobby)
-        setSelectedMaxScore(data.max_score)
+      case 'max_words_changed':
+        setLobby(prevLobby => prevLobby ? { ...prevLobby, max_words: data.max_words } : prevLobby)
+        setSelectedMaxWords(data.max_words)
         break
       case 'game_started':
         setCurrentPage('game');
@@ -761,18 +859,47 @@ function App() {
         console.log('🎯 TRANSLATION CORRECT HANDLER START')
         console.log('Received data:', data)
         
-        // Update player score
+        // Update player score and streak
         setLobby(prevLobby => {
           if (!prevLobby) return prevLobby
+          
+          // If the backend sent updated players data, use that
+          if (data.players) {
+            const updatedLobby = {
+              ...prevLobby,
+              players: prevLobby.players.map(p => {
+                const updatedPlayer = (data.players as any[]).find((dp: any) => dp.id === p.id)
+                return updatedPlayer ? {
+                  ...p,
+                  score: updatedPlayer.score,
+                  streak: updatedPlayer.streak,
+                  highest_streak: updatedPlayer.highest_streak,
+                  fastest_guess: updatedPlayer.fastest_guess
+                } : p
+              })
+            }
+            console.log('Updated lobby players from backend data:', updatedLobby.players)
+            console.log('Calling detectOvertakes with players:', updatedLobby.players)
+            // Detect overtakes after updating scores
+            detectOvertakes(updatedLobby.players)
+            return updatedLobby
+          }
+          
+          // Fallback to old behavior (only update the winning player)
           const updatedLobby = {
             ...prevLobby,
             players: prevLobby.players.map(p => 
               p.id === data.player_id 
-                ? { ...p, score: data.score }
+                ? { 
+                    ...p, 
+                    score: data.score,
+                    streak: data.streak,
+                    highest_streak: Math.max(p.highest_streak || 0, data.streak)
+                  }
                 : p
             )
           }
-          console.log('Updated lobby players:', updatedLobby.players)
+          console.log('Updated lobby players (fallback):', updatedLobby.players)
           console.log('Calling detectOvertakes with players:', updatedLobby.players)
           // Detect overtakes after updating scores
           detectOvertakes(updatedLobby.players)
@@ -794,7 +921,10 @@ function App() {
         
         // Only update animation, keep current word visible during animation
         console.log('🎯 Starting animation with current word, new word data:', newWordData)
+        console.log('🎯 Current game state before animation:', gameState)
+        console.log('🎯 Animation state that will be set:', data.player_id === playerId ? 'fly-out' : 'drop-down')
         if (data.player_id === playerId) {
+          // This player won - show fly-out animation
           setGameState(prev => {
             const newState: GameState = {
               ...prev,
@@ -806,6 +936,7 @@ function App() {
             return newState
           })
         } else {
+          // This player didn't win - show drop-down animation
           setGameState(prev => {
             const newState: GameState = {
               ...prev,
@@ -820,11 +951,98 @@ function App() {
         break
       }
       case 'translation_incorrect': {
+        // Update player score and reset streak
+        setLobby(prevLobby => {
+          if (!prevLobby) return prevLobby
+          const updatedLobby = {
+            ...prevLobby,
+            players: prevLobby.players.map(p => 
+              p.id === data.player_id 
+                ? { 
+                    ...p, 
+                    score: data.score,
+                    streak: data.streak
+                  }
+                : p
+            )
+          }
+          return updatedLobby
+        })
+        
         if (data.player_id === playerId) {
           setIsInputShaking(true)
           setTranslationInput('')
           setTimeout(() => setIsInputShaking(false), 500)
         }
+        break
+      }
+      case 'timeout': {
+        // Reset all player streaks on timeout
+        setLobby(prevLobby => {
+          if (!prevLobby) return prevLobby
+          const updatedLobby = {
+            ...prevLobby,
+            players: prevLobby.players.map(p => ({ ...p, streak: 0 }))
+          }
+          return updatedLobby
+        })
+        
+        // Hide fuse bar during animation sequence
+        setShowFuseBar(false)
+        
+        // Generate new word key for the new word
+        const newWordKey = `${Date.now()}-${Math.random()}`
+        
+        // Handle timeout - all players get drop-down animation
+        const newWordData = {
+          currentWord: data.new_word,
+          currentWordLanguage: data.new_word_language,
+          currentWordTranslations: data.new_word_translations
+        }
+        
+        setGameState(prev => {
+          const newState: GameState = {
+            ...prev,
+            wordAnimation: 'drop-down' as const,
+            pendingWordData: { ...newWordData, wordKey: newWordKey }
+          }
+          console.log('🎯 Updated game state (timeout) - animation only:', newState)
+          return newState
+        })
+        break
+      }
+      case 'game_ended': {
+        console.log('🎯 GAME ENDED HANDLER START')
+        console.log('Received game end data:', data)
+        
+        // Update final player data with streaks and fastest guesses
+        setLobby(prevLobby => {
+          if (!prevLobby) return prevLobby
+          const updatedLobby = {
+            ...prevLobby,
+            players: prevLobby.players.map(p => {
+              const finalPlayerData = data.players.find((fp: any) => fp.id === p.id)
+              return finalPlayerData ? {
+                ...p,
+                score: finalPlayerData.score,
+                highest_streak: finalPlayerData.highest_streak,
+                fastest_guess: finalPlayerData.fastest_guess
+              } : p
+            })
+          }
+          return updatedLobby
+        })
+        
+        // Set game summary
+        setGameSummary({
+          winner: data.winner,
+          winner_id: data.winner_id,
+          max_words: data.max_words,
+          word_history: data.word_history,
+          players: data.players
+        })
+        
+        setCurrentPage('game_summary')
         break
       }
       case 'word_timeout': {
@@ -862,10 +1080,6 @@ function App() {
       case 'pong':
         console.log('Received pong from server')
         break
-      case 'game_ended':
-        setGameSummary(data)
-        setCurrentPage('game_summary')
-        break
       case 'play_again':
         setLobby(prevLobby => prevLobby ? { ...prevLobby, players: data.players } : prevLobby)
         setGameSummary(null)
@@ -901,7 +1115,7 @@ function App() {
         setLobby(data.lobby)
         setIsHost(true)
         setSelectedDifficulty(data.lobby.difficulty)
-        setSelectedMaxScore(data.lobby.max_score || 10)
+        setSelectedMaxWords(data.lobby.max_words || 10)
         setCurrentPage('lobby')
         
         // Update URL
@@ -928,7 +1142,7 @@ function App() {
         setLobby(data.lobby)
         setIsHost(false)
         setSelectedDifficulty(data.lobby.difficulty)
-        setSelectedMaxScore(data.lobby.max_score || 10)
+        setSelectedMaxWords(data.lobby.max_words || 10)
         setCurrentPage('lobby')
       } else {
         const errorData = await response.json()
@@ -946,7 +1160,7 @@ function App() {
         const data = await response.json()
         setLobby(data)
         setSelectedDifficulty(data.difficulty)
-        setSelectedMaxScore(data.max_score || 10)
+        setSelectedMaxWords(data.max_words || 10)
       }
     } catch (error) {
       console.error('Error loading lobby:', error)
@@ -995,20 +1209,20 @@ function App() {
     }
   }
 
-  const updateMaxScore = async (maxScore: number) => {
+  const updateMaxWords = async (maxWords: number) => {
     try {
-      const response = await fetch(config.api.endpoints.updateMaxScore(lobbyId), {
+      const response = await fetch(config.api.endpoints.updateMaxWords(lobbyId), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: `player_id=${encodeURIComponent(playerId)}&max_score=${maxScore}`
+        body: `player_id=${encodeURIComponent(playerId)}&max_words=${maxWords}`
       })
       if (response.ok) {
-        setSelectedMaxScore(maxScore)
+        setSelectedMaxWords(maxWords)
       }
     } catch (error) {
-      console.error('Error updating max score:', error)
+      console.error('Error updating max words:', error)
     }
   }
 
@@ -1330,6 +1544,19 @@ function App() {
     }
   }, [showCountdown]);
 
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  const handleCopyInvite = async () => {
+    const inviteUrl = `${window.location.origin}?lobby=${lobbyId}`;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 1500);
+    } catch (error) {
+      console.error('Failed to copy invite link:', error);
+    }
+  };
+
   if (currentPage === 'game') {
     // Use mobile game screen on mobile devices
     if (isMobile) {
@@ -1353,11 +1580,11 @@ function App() {
             onWordAnimationEnd={(animationName) => {
               console.log('🎬 Animation ended:', animationName)
               console.log('🔍 Current wordAnimation state:', gameState.wordAnimation)
-              if (animationName === 'word-fly-out') {
+              if (animationName === 'word-fly-out' || animationName === 'word-fly-out-streak') {
                 handleWordFlyOutEnd()
-              } else if (animationName === 'word-drop-down') {
+              } else if (animationName === 'word-drop-down' || animationName === 'word-drop-down-streak') {
                 handleWordDropDownEnd()
-              } else if (animationName === 'drop-in') {
+              } else if (animationName === 'drop-in' || animationName === 'drop-in-streak') {
                 handleWordDropInEnd()
               }
             }}
@@ -1442,7 +1669,7 @@ function App() {
                         index === 0 ? 'bg-gray-800/80' : 
                         index === 1 ? 'bg-gray-700/80' : 
                         'bg-gray-600/80'
-                      } ${isOvertaking ? 'animate-overtake-slide-up' : ''} ${isOvertaken ? 'animate-overtake-slide-down' : ''}`}
+                      } ${isOvertaking ? 'animate-overtake-slide-up' : ''} ${isOvertaken ? 'animate-overtake-slide-down' : ''} ${(player.streak || 0) >= 2 ? 'scoreboard-streak-glow' : ''}`}
                       style={{
                         top: `${index * 48}px`,
                         zIndex: isOvertaking ? 10 : isOvertaken ? 1 : 1
@@ -1456,7 +1683,14 @@ function App() {
                         }
                       }}
                     >
-                      <span className="text-white font-medium">{player.name}</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-white font-medium">{player.name}</span>
+                        {(player.streak || 0) >= 2 && (
+                          <span className="text-amber-400 text-sm font-bold">
+                            🔥 {player.streak}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-white font-bold">{player.score || 0}</span>
                     </div>
                   )
@@ -1476,20 +1710,50 @@ function App() {
                     ref={wordRef}
                     key={`word-${gameState.wordKey}-${gameState.wordAnimation}`}
                     className={`font-bold text-white drop-shadow-2xl break-words text-4xl sm:text-5xl md:text-6xl lg:text-7xl ${
-                      gameState.wordAnimation === 'fly-out' ? 'animate-word-fly-out' :
-                      gameState.wordAnimation === 'drop-down' ? 'animate-word-drop-down' :
-                      gameState.wordAnimation === 'drop-in' ? 'animate-drop-in' :
-                      gameState.wordAnimation === 'hidden' ? 'animate-hidden' :
-                      ''
-                    }`}
+                      (() => {
+                        // Check if current player has a streak
+                        const hasStreak = lobby && playerId && (() => {
+                          const currentPlayer = lobby.players.find(p => p.id === playerId)
+                          return (currentPlayer?.streak || 0) >= 2  // Streak starts at 2
+                        })()
+                        
+                        if (gameState.wordAnimation === 'fly-out') {
+                          return hasStreak ? 'animate-word-fly-out-streak' : 'animate-word-fly-out'
+                        } else if (gameState.wordAnimation === 'drop-down') {
+                          return hasStreak ? 'animate-word-drop-down-streak' : 'animate-word-drop-down'
+                        } else if (gameState.wordAnimation === 'drop-in') {
+                          return hasStreak ? 'animate-drop-in-streak' : 'animate-drop-in'
+                        } else if (gameState.wordAnimation === 'hidden') {
+                          return 'animate-hidden'
+                        }
+                        return ''
+                      })()
+                    } ${(() => {
+                      // Apply streak glow only when no animation is running
+                      if (lobby && playerId && gameState.wordAnimation === 'none') {
+                        const currentPlayer = lobby.players.find(p => p.id === playerId)
+                        return (currentPlayer?.streak || 0) >= 2 ? 'streak-glow' : ''  // Streak starts at 2
+                      }
+                      return ''
+                    })()}`}
+                    onAnimationStart={(event) => {
+                      const animationName = event.animationName;
+                      console.log('🎬 Animation started:', animationName);
+                      console.log('🎬 Element classes:', (event.target as HTMLElement).className);
+                    }}
                     onAnimationEnd={(event) => {
                       const animationName = event.animationName;
+                      console.log('🎬 Animation ended:', animationName);
+                      console.log('🎬 Element classes:', (event.target as HTMLElement).className);
                       // Use the same handler as mobile
-                      if (animationName === 'word-fly-out') {
+                      if (animationName === 'word-fly-out' || animationName === 'word-fly-out-streak') {
+                        console.log('🎬 Calling handleWordFlyOutEnd');
                         handleWordFlyOutEnd();
-                      } else if (animationName === 'word-drop-down') {
+                      } else if (animationName === 'word-drop-down' || animationName === 'word-drop-down-streak') {
+                        console.log('🎬 Calling handleWordDropDownEnd');
                         handleWordDropDownEnd();
-                      } else if (animationName === 'drop-in') {
+                      } else if (animationName === 'drop-in' || animationName === 'drop-in-streak') {
+                        console.log('🎬 Calling handleWordDropInEnd');
                         handleWordDropInEnd();
                       }
                     }}
@@ -1553,8 +1817,8 @@ function App() {
           toggleReady={toggleReady}
           selectedDifficulty={selectedDifficulty}
           updateDifficulty={updateDifficulty}
-          selectedMaxScore={selectedMaxScore}
-          updateMaxScore={updateMaxScore}
+          selectedMaxWords={selectedMaxWords}
+          updateMaxWords={updateMaxWords}
           startGame={startGame}
           copyInviteLink={copyInviteLink}
         />
@@ -1563,8 +1827,8 @@ function App() {
 
     // Desktop lobby screen (original)
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-8">
-        {/* Main container */}
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8">
+        {/* Main container: chat and player list side by side */}
         <div className="w-full max-w-4xl h-96 bg-gray-800 rounded-lg flex relative">
           {/* Chat section (left side) */}
           <div className="flex-1 p-6 flex flex-col">
@@ -1610,138 +1874,116 @@ function App() {
                 </div>
               ))}
             </div>
-          </div>
-          {/* Controls section below chat */}
-          <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 flex items-center space-x-8">
-            {/* Ready toggle (non-hosts only) */}
-            {!isHost && (
-              <div className="flex flex-col items-center">
-                <button
-                  onClick={toggleReady}
-                  className={`relative w-14 h-6 bg-gray-600 rounded-full transition-all duration-200 ease-out ${
-                    lobby?.players.find(p => p.id === playerId)?.ready
-                      ? '' // remove green-600
-                      : 'bg-gray-600'
-                  }`}
-                  style={{ backgroundColor: lobby?.players.find(p => p.id === playerId)?.ready ? '#f59e0b' : undefined }}
-                  title="Toggle Ready"
-                >
-                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all duration-200 ease-out ${
-                    lobby?.players.find(p => p.id === playerId)?.ready
-                      ? 'left-9' 
-                      : 'left-0.5'
-                  }`} />
-                </button>
-                <div className="text-xs text-gray-400 mt-1">ready</div>
-              </div>
-            )}
-            {/* Difficulty dropdown (host only) */}
-            {isHost && (
-              <div className="relative">
-                <button
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="bg-transparent text-white py-2 px-0 text-sm focus:outline-none transition-colors duration-200 flex items-center space-x-2"
-                >
-                  <span>{difficulties.find(d => d.value === selectedDifficulty)?.label || 'Select difficulty'}</span>
-                  <svg 
-                    className={`w-3 h-3 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} 
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                <div className="text-xs text-gray-400 mt-1">difficulty</div>
-                {isDropdownOpen && (
-                  <div className="absolute bottom-full left-0 right-0 bg-gray-700 border border-gray-600 rounded-lg mb-1 z-10 min-w-32">
-                    {difficulties.map((difficulty) => (
-                      <button
-                        key={difficulty.value}
-                        onClick={() => {
-                          updateDifficulty(difficulty.value)
-                          setIsDropdownOpen(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-white hover:bg-gray-600 transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg text-sm"
-                      >
-                        {difficulty.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Max Score dropdown (host only) */}
-            {isHost && (
-              <div className="relative">
-                <button
-                  onClick={() => setIsMaxScoreDropdownOpen(!isMaxScoreDropdownOpen)}
-                  className="bg-transparent text-white py-2 px-0 text-sm focus:outline-none transition-colors duration-200 flex items-center space-x-2"
-                >
-                  <span>{maxScoreOptions.find(m => m.value === selectedMaxScore)?.label || 'Select max score'}</span>
-                  <svg 
-                    className={`w-3 h-3 transition-transform duration-200 ${isMaxScoreDropdownOpen ? 'rotate-180' : ''}`} 
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                <div className="text-xs text-gray-400 mt-1">max score</div>
-                {isMaxScoreDropdownOpen && (
-                  <div className="absolute bottom-full left-0 right-0 bg-gray-700 border border-gray-600 rounded-lg mb-1 z-10 min-w-32">
-                    {maxScoreOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          updateMaxScore(option.value)
-                          setIsMaxScoreDropdownOpen(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-white hover:bg-gray-600 transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg text-sm"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Start game button (host only) */}
-            {isHost && (
-              <div className="flex flex-col items-center">
-                <button
-                  onClick={startGame}
-                  disabled={!lobby?.players.every(p => p.ready)}
-                  className={`w-10 h-10 rounded-full border transition-all duration-150 ease-out flex items-center justify-center ${
-                    lobby?.players.every(p => p.ready)
-                      ? 'border-gray-600 text-white hover:border-white hover:scale-105'
-                      : 'border-gray-700 text-gray-500 cursor-not-allowed'
-                  }`}
-                  title="Start Game"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-                <div className="text-xs text-gray-400 mt-1">start</div>
-              </div>
-            )}
-            {/* Invite button (host only, icon only) */}
-            {isHost && (
-              <div className="flex flex-col items-center">
-                <button
-                  onClick={copyInviteLink}
-                  className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-600 bg-gray-800 hover:border-white transition-all duration-150"
-                  title="Copy Invite Link"
-                >
-                  <FiLink className="w-5 h-5 text-white" />
-                </button>
-                <div className="text-xs text-gray-400 mt-1">invite</div>
-              </div>
+            {/* Ready toggle for non-host player */}
+            {!isHost && lobby && (
+              <button
+                onClick={toggleReady}
+                className={`mt-6 w-full py-2 rounded-lg font-semibold text-base transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-md ${
+                  lobby.players.find(p => p.id === playerId)?.ready
+                    ? 'bg-amber-500 text-white hover:bg-amber-600'
+                    : 'bg-gray-600 text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                {lobby.players.find(p => p.id === playerId)?.ready ? 'Unready' : 'Ready'}
+              </button>
             )}
           </div>
         </div>
+        {/* Host settings box below main container */}
+        {isHost && (
+          <div className="w-full max-w-4xl mx-auto mt-6 bg-gray-800 rounded-lg shadow-lg p-6 flex flex-col gap-4">
+            {/* Row 1: Buttons */}
+            <div className="flex gap-4 mb-2">
+              <button
+                onClick={startGame}
+                disabled={!lobby?.players.every(p => p.ready)}
+                className={`flex-1 h-12 py-3 rounded-lg font-semibold text-lg transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-md ${
+                  lobby?.players.every(p => p.ready)
+                    ? 'bg-amber-500 text-white hover:bg-amber-600'
+                    : 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                }`}
+                style={{ minHeight: 48, maxHeight: 48 }}
+              >
+                Start Game
+              </button>
+              <div className="flex-1 flex flex-col items-center" style={{ minHeight: 48, maxHeight: 48, position: 'relative' }}>
+                <button
+                  onClick={handleCopyInvite}
+                  className="w-full h-12 py-3 rounded-lg font-semibold text-lg bg-[#23272e] text-white hover:bg-[#2d323b] transition-all duration-150 focus:outline-none shadow-md flex items-center justify-center"
+                  style={{ minHeight: 48, maxHeight: 48 }}
+                >
+                  <FiLink className="inline-block mr-2 -mt-0.5" /> Invite Players
+                </button>
+                {inviteCopied && (
+                  <div className="text-xs text-amber-400 mt-1 text-center w-full absolute left-0 right-0" style={{ top: '100%' }}>Link copied!</div>
+                )}
+              </div>
+            </div>
+            {/* Row 2: Dropdowns */}
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="block text-white font-semibold mb-2">Difficulty</label>
+                <div className="relative">
+                  <button
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className="w-full bg-[#23272e] border border-gray-700 text-white py-2 px-4 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors duration-200 hover:bg-[#2d323b]"
+                  >
+                    {difficulties.find(d => d.value === selectedDifficulty)?.label || 'Select difficulty'}
+                    <svg className={`w-4 h-4 absolute right-4 top-1/2 transform -translate-y-1/2 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {isDropdownOpen && (
+                    <div className="absolute left-0 right-0 bg-[#23272e] border border-gray-700 rounded-lg mt-1 z-10 shadow-lg">
+                      {difficulties.map((difficulty) => (
+                        <button
+                          key={difficulty.value}
+                          onClick={() => {
+                            updateDifficulty(difficulty.value)
+                            setIsDropdownOpen(false)
+                          }}
+                          className="w-full text-left px-4 py-2 text-white hover:bg-[#2d323b] transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg text-sm"
+                        >
+                          {difficulty.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex-1">
+                <label className="block text-white font-semibold mb-2">Max Words</label>
+                <div className="relative">
+                  <button
+                    onClick={() => setIsMaxWordsDropdownOpen(!isMaxWordsDropdownOpen)}
+                    className="w-full bg-[#23272e] border border-gray-700 text-white py-2 px-4 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors duration-200 hover:bg-[#2d323b]"
+                  >
+                    {maxWordsOptions.find(m => m.value === selectedMaxWords)?.label || 'Select max words'}
+                    <svg className={`w-4 h-4 absolute right-4 top-1/2 transform -translate-y-1/2 transition-transform duration-200 ${isMaxWordsDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {isMaxWordsDropdownOpen && (
+                    <div className="absolute left-0 right-0 bg-[#23272e] border border-gray-700 rounded-lg mt-1 z-10 shadow-lg">
+                      {maxWordsOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => {
+                            updateMaxWords(option.value)
+                            setIsMaxWordsDropdownOpen(false)
+                          }}
+                          className="w-full text-left px-4 py-2 text-white hover:bg-[#2d323b] transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg text-sm"
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -1789,6 +2031,9 @@ function App() {
                       {wordData.status === 'timeout' && (
                         <span className="text-red-400 text-sm">⏰ Timeout</span>
                       )}
+                      {wordData.status === 'correct' && wordData.time_taken && (
+                        <span className="text-xs text-gray-400">⚡ {wordData.time_taken.toFixed(1)}s</span>
+                      )}
                     </div>
                     <div className="flex flex-1 min-w-0 space-x-2 text-xs justify-end">
                       <span className="text-gray-300 flex-1 truncate text-left w-auto max-w-[100px]">{wordData.translations.sv}</span>
@@ -1822,7 +2067,12 @@ function App() {
                           {player.language === 'sv' ? '🇸🇪' : player.language === 'fr' ? '🇫🇷' : ''}
                         </span>
                       </div>
-                      <span className="text-white font-bold text-lg">{player.score}</span>
+                      <div className="flex flex-col items-end space-y-1">
+                        <span className="text-white font-bold text-lg">{player.score}</span>
+                        <div className="flex space-x-2 text-xs text-gray-400">
+                          <span>🔥 {player.highest_streak}</span>
+                        </div>
+                      </div>
                     </div>
                   ))}
               </div>

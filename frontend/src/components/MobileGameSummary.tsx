@@ -4,20 +4,27 @@ interface MobileGameSummaryProps {
   gameSummary: {
     winner: string
     winner_id: string
-    max_score: number
+    max_words: number
     word_history: Array<{
       word: string
       translations: { sv: string, fr: string }
       winner?: string
       winner_id?: string
       time_taken: number
-      status: 'correct' | 'timeout'
+      status: 'correct' | 'timeout' | 'incorrect'
+      points_earned?: number
+      points_lost?: number
+      streak?: number
+      time_bonus?: number
+      streak_multiplier?: number
     }>
     players: Array<{
       id: string
       name: string
       score: number
       language: string
+      highest_streak: number
+      fastest_guess: number
     }>
   }
   isHost: boolean
@@ -66,6 +73,9 @@ export const MobileGameSummary: React.FC<MobileGameSummaryProps> = ({
                       {wordData.status === 'timeout' && (
                         <span className="text-red-400 text-xs">Timeout</span>
                       )}
+                      {wordData.status === 'correct' && wordData.time_taken && (
+                        <span className="text-xs text-gray-400">⚡ {wordData.time_taken.toFixed(1)}s</span>
+                      )}
                     </div>
                     <div className="flex gap-2 mt-1 pl-6 text-xs text-gray-300 opacity-80">
                       <span className="truncate flex-1">{wordData.translations.sv}</span>
@@ -98,7 +108,12 @@ export const MobileGameSummary: React.FC<MobileGameSummaryProps> = ({
                           {player.language === 'sv' ? '🇸🇪' : player.language === 'fr' ? '🇫🇷' : ''}
                         </span>
                       </div>
-                      <span className="text-white font-bold text-base">{player.score}</span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-white font-bold text-base">{player.score}</span>
+                        <div className="flex gap-1 text-xs text-gray-400">
+                          <span>🔥 {player.highest_streak}</span>
+                        </div>
+                      </div>
                     </div>
                   ))}
               </div>

@@ -1,3 +1,12 @@
+# Motord backend
+#
+# HuggingFace model cache location can be controlled with the following environment variables:
+#   - HF_HOME: sets the root cache directory for HuggingFace (default: ~/.cache/huggingface)
+#   - TRANSFORMERS_CACHE: sets the cache directory for model files (default: $HF_HOME/hub or $HF_HOME/xet)
+#
+# If you want to bundle models in Docker, set these envs in your Dockerfile or docker-compose.yml to point to the correct location.
+
+import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,13 +51,16 @@ class Player(BaseModel):
     ready: bool = False
     joined_at: datetime
     score: int = 0
+    streak: int = 0  # Current streak count
+    highest_streak: int = 0  # Highest streak achieved
+    fastest_guess: float = 30.0  # Fastest guess time in seconds
 
 class Lobby(BaseModel):
     id: str
     host_id: str
     players: List[Player]
     difficulty: int = 2
-    max_score: int = 10  # Default max score
+    max_words: int = 10  # Changed from max_score to max_words
     created_at: datetime
     invite_code: str
 
@@ -61,6 +73,8 @@ class GameState(BaseModel):
     is_active: bool = False
     word_history: List[Dict] = []  # Track all words and their results
     start_time: Optional[datetime] = None
+    word_start_time: Optional[datetime] = None  # When current word started
+    total_correct_words: int = 0  # Track total correct words for game end condition
 
 class ChatMessage(BaseModel):
     player_id: str
@@ -75,48 +89,26 @@ player_connections: Dict[str, WebSocket] = {}  # Map player_id to WebSocket conn
 player_heartbeats: Dict[str, datetime] = {}  # Track last heartbeat for each player
 game_states: Dict[str, GameState] = {}  # Game state for each lobby
 
-# Load word data from filtered wordlist
+# Load word data from merged translated wordlist
 WORDS_DATA = []
 
 def load_words_data():
-    """Load words from the filtered wordlist"""
+    """Load words from the merged translated wordlist (JSONL format)"""
     global WORDS_DATA
+    WORDS_DATA = []
     try:
-        with open('wordlists/filtered_wordlist.json', 'r', encoding='utf-8') as f:
+        with open('wordlists/efllex_wordlist_merged.jsonl', 'r', encoding='utf-8') as f:
+            header = f.readline()  # skip header
             for line in f:
-                if line.strip():
-                    word_data = json.loads(line.strip())
-                    WORDS_DATA.append(word_data)
-        print(f"Loaded {len(WORDS_DATA)} words from filtered wordlist")
-    except FileNotFoundError:
-        print("Warning: filtered_wordlist.json not found, using fallback words")
-        # Fallback to basic words if file not found
-        WORDS_DATA = [
-            {
-                "word": "bonjour",
-                "difficulty": 0,
-                "translation_sv": "hej",
-                "translation_fr": "bonjour"
-            },
-            {
-                "word": "hej",
-                "difficulty": 0,
-                "translation_sv": "hej",
-                "translation_fr": "bonjour"
-            },
-            {
-                "word": "merci",
-                "difficulty": 0,
-                "translation_sv": "tack",
-                "translation_fr": "merci"
-            },
-            {
-                "word": "tack",
-                "difficulty": 0,
-                "translation_sv": "tack",
-                "translation_fr": "merci"
-            }
-        ]
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if obj.get('word'):
+                        WORDS_DATA.append(obj)
+                except Exception:
+                    continue
     except Exception as e:
         print(f"Error loading wordlist: {e}")
         WORDS_DATA = []
@@ -160,25 +152,46 @@ def verify_translation(input_word: str, player_language: str, current_word_data:
     # Target language is the *other* language
     if player_language == "fr":
         correct_translation = current_word_data.get("translation_sv", "")
+        alternates = current_word_data.get("alternates", {}).get("sv", [])
     elif player_language == "sv":
         correct_translation = current_word_data.get("translation_fr", "")
+        alternates = current_word_data.get("alternates", {}).get("fr", [])
     else:
         correct_translation = ""
+        alternates = []
     normalized_correct = normalize_word(correct_translation)
-    print(f"Translation check: input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', correct='{correct_translation}' -> '{normalized_correct}', match={normalized_input == normalized_correct}")
-    return normalized_input == normalized_correct
+    normalized_alternates = [normalize_word(a) for a in alternates]
+    match = normalized_input == normalized_correct or normalized_input in normalized_alternates
+    print(f"Translation check: input='{input_word}' -> '{normalized_input}', player_lang='{player_language}', correct='{correct_translation}' -> '{normalized_correct}', alternates={normalized_alternates}, match={match}")
+    return match
 
 def generate_invite_code() -> str:
     """Generate a 6-character invite code"""
     return str(uuid.uuid4())[:6].upper()
 
+def calculate_time_bonus(time_taken: float, max_time: float = 30.0) -> int:
+    """Calculate bonus points based on how fast the guess was made"""
+    # Time bonus: 100 points for < 1 second, decreasing to 10 points at 29 seconds
+    # Formula: 100 - (time_taken / max_time) * 90
+    if time_taken <= 1.0:
+        return 100
+    elif time_taken >= 29.0:
+        return 10
+    else:
+        return int(100 - (time_taken / max_time) * 90)
+
+def calculate_streak_multiplier(streak: int) -> int:
+    """Calculate streak multiplier (2x for 2 streak, 3x for 3, etc., max 10x)"""
+    return min(streak, 10)
+
+def calculate_total_points(base_points: int, time_bonus: int, streak_multiplier: int) -> int:
+    """Calculate total points for a correct guess"""
+    total_before_multiplier = base_points + time_bonus
+    return total_before_multiplier * streak_multiplier
+
 @app.get("/")
 def root():
     return {"message": "Motord Python Backend"}
-
-@app.get("/health")
-def health():
-    return JSONResponse(content={"status": "healthy", "service": "motord-backend"})
 
 @app.post("/lobby/create")
 async def create_lobby(player_name: str = Form(...), language: str = Form(...)):
@@ -201,7 +214,7 @@ async def create_lobby(player_name: str = Form(...), language: str = Form(...)):
         id=lobby_id,
         host_id=player_id,
         players=[player],
-        max_score=10,  # Default max score
+        max_words=10,  # Default max score
         created_at=datetime.now(),
         invite_code=invite_code
     )
@@ -250,7 +263,7 @@ async def get_lobby(lobby_id: str):
             "score": player.score
         } for player in lobby.players],
         "difficulty": lobby.difficulty,
-        "max_score": lobby.max_score,
+        "max_score": lobby.max_words,
         "invite_code": lobby.invite_code,
         "created_at": lobby.created_at.isoformat()
     }
@@ -282,7 +295,7 @@ async def join_lobby(lobby_id: str, player_name: str = Form(...), language: str 
     
     # Notify other players via WebSocket
     print(f"=== BACKEND: PLAYER JOINED ===")
-    print(f"Player {player.name} ({player.id}) joined lobby {lobby_id}")
+    print(f"Player {player.name} ({player_id}) joined lobby {lobby_id}")
     print(f"Current lobby players count: {len(lobby.players)}")
     print(f"Current lobby players: {[p.name for p in lobby.players]}")
     
@@ -373,29 +386,29 @@ async def update_difficulty(lobby_id: str, player_id: str = Form(...), difficult
     
     return {"difficulty": difficulty}
 
-@app.post("/lobby/{lobby_id}/max_score")
-async def update_max_score(lobby_id: str, player_id: str = Form(...), max_score: int = Form(...)):
-    """Update lobby max score (host only)"""
+@app.post("/lobby/{lobby_id}/max_words")
+async def update_max_words(lobby_id: str, player_id: str = Form(...), max_words: int = Form(...)):
+    """Update the maximum number of words to play to"""
     if lobby_id not in lobbies:
         raise HTTPException(status_code=404, detail="Lobby not found")
     
     lobby = lobbies[lobby_id]
     
     if lobby.host_id != player_id:
-        raise HTTPException(status_code=403, detail="Only host can change max score")
+        raise HTTPException(status_code=403, detail="Only host can change max words")
     
-    if max_score < 1:
-        raise HTTPException(status_code=400, detail="Max score must be at least 1")
+    if max_words < 1:
+        raise HTTPException(status_code=400, detail="Max words must be at least 1")
     
-    lobby.max_score = max_score
+    lobby.max_words = max_words
     
     # Notify other players via WebSocket
     await broadcast_to_lobby(lobby_id, {
-        "type": "max_score_changed",
-        "max_score": max_score
+        "type": "max_words_changed",
+        "max_words": max_words
     })
     
-    return {"max_score": max_score}
+    return {"max_words": max_words}
 
 @app.post("/lobby/{lobby_id}/start")
 async def start_game(lobby_id: str, player_id: str = Form(...)):
@@ -412,6 +425,13 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
     if not all(p.ready for p in lobby.players):
         raise HTTPException(status_code=400, detail="All players must be ready")
     
+    # Reset all player scores and streaks for new game
+    for p in lobby.players:
+        p.score = 0
+        p.streak = 0
+        p.highest_streak = 0
+        p.fastest_guess = 30.0
+    
     # Get initial word
     word_data = get_random_word(lobby.difficulty)
     current_word = word_data["word"]
@@ -427,41 +447,49 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
         current_word_language=current_word_language,
         current_word_translations=current_word_translations,
         is_active=True,
-        start_time=datetime.now()
+        start_time=datetime.now(),
+        word_start_time=datetime.now(),  # Initialize word start time
+        total_correct_words=0
     )
+    
     game_states[lobby_id] = game_state
-    print(f"[FUSEBAR-BACKEND] Game started for lobby {lobby_id}. Word: {current_word}, fuse_time: {game_state.fuse_time}, fuse_max_time: {game_state.fuse_max_time}")
     
     # Broadcast game started message
     await broadcast_to_lobby(lobby_id, {
         "type": "game_started",
-        "lobby_id": lobby_id,
-        "difficulty": lobby.difficulty,
         "current_word": current_word,
         "current_word_language": current_word_language,
-        "current_word_translations": current_word_translations
+        "current_word_translations": current_word_translations,
+        "players": [{
+            "id": p.id,
+            "name": p.name,
+            "score": p.score,
+            "language": p.language,
+            "streak": p.streak
+        } for p in lobby.players]
     })
-    print(f"[FUSEBAR-BACKEND] Broadcasted game_started for lobby {lobby_id}.")
     
     return {"status": "game_started"}
 
 @app.post("/lobby/{lobby_id}/play_again")
 async def play_again(lobby_id: str, request: Request):
-    form = await request.form()
-    print(f"[DEBUG] Play Again called: remote_addr={request.client.host}, headers={dict(request.headers)}, form={dict(form)}")
-    """Reset game and return to lobby (host only)"""
+    """Reset the game for another round"""
     if lobby_id not in lobbies:
         raise HTTPException(status_code=404, detail="Lobby not found")
     
+    form = await request.form()
     lobby = lobbies[lobby_id]
     player = next((p for p in lobby.players if p.id == form.get("player_id")), None)
     
     if not player or not player.is_host:
         raise HTTPException(status_code=403, detail="Only host can restart the game")
     
-    # Reset all player scores and ready status (except host)
+    # Reset all player scores, streaks, and ready status (except host)
     for p in lobby.players:
         p.score = 0
+        p.streak = 0
+        p.highest_streak = 0
+        p.fastest_guess = 30.0
         if not p.is_host:
             p.ready = False
     
@@ -480,7 +508,8 @@ async def play_again(lobby_id: str, request: Request):
             "is_host": p.is_host,
             "ready": p.ready,
             "joined_at": p.joined_at.isoformat(),
-            "score": p.score
+            "score": p.score,
+            "streak": p.streak
         } for p in lobby.players]
     })
     print(f"[FUSEBAR-BACKEND] Broadcasted play_again for lobby {lobby_id}.")
@@ -515,38 +544,74 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     is_correct = verify_translation(translation, player.language, current_word_data)
     
     if is_correct:
-        # Calculate time taken for this word
-        word_time_taken = 30 - game_state.fuse_time if hasattr(game_state, 'fuse_time') else 0
+        # Calculate time taken for this word using word_start_time
+        if game_state.word_start_time:
+            time_taken = (datetime.now() - game_state.word_start_time).total_seconds()
+        else:
+            time_taken = 30.0  # Fallback if no start time
         
-        # Add current word to history
+        # Update fastest guess if this is faster
+        if time_taken < player.fastest_guess:
+            player.fastest_guess = time_taken
+        
+        # Calculate scoring
+        base_points = 100  # Base points for correct guess
+        time_bonus = calculate_time_bonus(time_taken)
+        player.streak += 1
+        # Only apply streak multiplier if streak is 2 or more (streak starts at 2)
+        streak_multiplier = calculate_streak_multiplier(player.streak) if player.streak >= 2 else 1
+        total_points = calculate_total_points(base_points, time_bonus, streak_multiplier)
+        
+        # Update highest streak if current streak is higher
+        if player.streak > player.highest_streak:
+            player.highest_streak = player.streak
+        
+        # Reset streaks for all other players (when someone guesses correctly, others lose their streaks)
+        for other_player in lobby.players:
+            if other_player.id != player_id:
+                other_player.streak = 0
+        
+        # Add points to player score
+        player.score += total_points
+        
+        # Increment total correct words
+        game_state.total_correct_words += 1
+        
+        # Add current word to history (only correct guesses)
         game_state.word_history.append({
             "word": game_state.current_word,
             "translations": game_state.current_word_translations,
             "winner": player.name,
             "winner_id": player_id,
-            "time_taken": word_time_taken,
-            "status": "correct"
+            "time_taken": time_taken,
+            "status": "correct",
+            "points_earned": total_points,
+            "streak": player.streak,
+            "time_bonus": time_bonus,
+            "streak_multiplier": streak_multiplier
         })
         
-        # Update player score
-        player.score += 1
-        
-        # Check if game should end (player reached max score)
-        if player.score >= lobby.max_score:
-            # Game ended - broadcast game end message
+        # Check if game should end (total correct words reached max_words)
+        if game_state.total_correct_words >= lobby.max_words:
+            # Game ended - find the winner (player with highest score)
             game_state.is_active = False
+            
+            # Find the player with the highest score
+            winner = max(lobby.players, key=lambda p: p.score)
             
             broadcast_message = {
                 "type": "game_ended",
-                "winner": player.name,
-                "winner_id": player_id,
-                "max_score": lobby.max_score,
+                "winner": winner.name,
+                "winner_id": winner.id,
+                "max_words": lobby.max_words,
                 "word_history": game_state.word_history,
                 "players": [{
                     "id": p.id,
                     "name": p.name,
                     "score": p.score,
-                    "language": p.language
+                    "language": p.language,
+                    "highest_streak": p.highest_streak,
+                    "fastest_guess": p.fastest_guess
                 } for p in lobby.players]
             }
             
@@ -554,6 +619,8 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             return {
                 "correct": True,
                 "score": player.score,
+                "points_earned": total_points,
+                "streak": player.streak,
                 "game_ended": True
             }
         
@@ -568,6 +635,7 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
         game_state.current_word = new_word_data["word"]
         game_state.current_word_language = current_word_language
         game_state.current_word_translations = current_word_translations
+        game_state.word_start_time = datetime.now()  # Set start time for new word
         
         # Broadcast correct translation and new word
         broadcast_message = {
@@ -575,19 +643,42 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             "player_id": player_id,
             "player_name": player.name,
             "score": player.score,
+            "points_earned": total_points,
+            "streak": player.streak,
+            "time_bonus": time_bonus,
+            "streak_multiplier": streak_multiplier,
             "new_word": new_word_data["word"],
             "new_word_language": current_word_language,
-            "new_word_translations": current_word_translations
+            "new_word_translations": current_word_translations,
+            "players": [{
+                "id": p.id,
+                "name": p.name,
+                "score": p.score,
+                "language": p.language,
+                "streak": p.streak,
+                "highest_streak": p.highest_streak,
+                "fastest_guess": p.fastest_guess
+            } for p in lobby.players]
         }
         
         # Broadcast the message
         await broadcast_to_lobby(lobby_id, broadcast_message)
     else:
+        # Incorrect guess - deduct points and reset streak
+        points_lost = 10
+        player.score = max(0, player.score - points_lost)  # Don't go below 0
+        player.streak = 0  # Reset streak on incorrect guess
+        
+        # DO NOT add incorrect guesses to word_history - only track points deduction
+        
         # Broadcast incorrect translation
         broadcast_message = {
             "type": "translation_incorrect",
             "player_id": player_id,
-            "player_name": player.name
+            "player_name": player.name,
+            "score": player.score,
+            "points_lost": points_lost,
+            "streak": player.streak
         }
         
         # Broadcast the message
@@ -595,7 +686,10 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     
     return {
         "correct": is_correct,
-        "score": player.score if is_correct else None
+        "score": player.score,
+        "points_earned": total_points if is_correct else None,
+        "points_lost": points_lost if not is_correct else None,
+        "streak": player.streak
     }
 
 @app.post("/lobby/{lobby_id}/player/{player_id}/leave")
@@ -647,20 +741,22 @@ async def handle_timeout(lobby_id: str):
     lobby = lobbies[lobby_id]
     game_state = game_states[lobby_id]
     
-    # Add current word to history as timed out
+    # Add timeout to word history
     game_state.word_history.append({
         "word": game_state.current_word,
         "translations": game_state.current_word_translations,
+        "status": "timeout",
         "winner": None,
-        "winner_id": None,
-        "time_taken": 30,  # Full time for timeout
-        "status": "timeout"
+        "time_taken": None
     })
-    print(f"[FUSEBAR-BACKEND] Timeout for lobby {lobby_id}. Previous word: {game_state.current_word}")
+    
+    # Reset all player streaks on timeout
+    for player in lobby.players:
+        player.streak = 0
     
     # Get new word
     new_word_data = get_random_word(lobby.difficulty)
-    current_word_language = "en"  # English words from the wordlist
+    current_word_language = "en"
     current_word_translations = {
         "sv": new_word_data.get("translation_sv", ""),
         "fr": new_word_data.get("translation_fr", "")
@@ -669,21 +765,36 @@ async def handle_timeout(lobby_id: str):
     game_state.current_word = new_word_data["word"]
     game_state.current_word_language = current_word_language
     game_state.current_word_translations = current_word_translations
-    print(f"[FUSEBAR-BACKEND] New word after timeout: {game_state.current_word}, fuse_time: {game_state.fuse_time}, fuse_max_time: {game_state.fuse_max_time}")
+    game_state.word_start_time = datetime.now()  # Set start time for new word
     
-    # Broadcast new word (no winner, just timeout)
+    # Broadcast timeout and new word
     broadcast_message = {
-        "type": "word_timeout",
+        "type": "timeout",
         "new_word": new_word_data["word"],
         "new_word_language": current_word_language,
-        "new_word_translations": current_word_translations
+        "new_word_translations": current_word_translations,
+        "players": [{
+            "id": p.id,
+            "name": p.name,
+            "score": p.score,
+            "language": p.language,
+            "streak": p.streak
+        } for p in lobby.players]
     }
     
-    # Broadcast the message
     await broadcast_to_lobby(lobby_id, broadcast_message)
-    print(f"[FUSEBAR-BACKEND] Broadcasted word_timeout for lobby {lobby_id}.")
     
     return {"status": "timeout_handled"}
+
+# Supported language pairs
+LANGUAGE_PAIRS = {
+    ("en", "fr"): "Helsinki-NLP/opus-mt-en-fr",
+    ("fr", "en"): "Helsinki-NLP/opus-mt-fr-en",
+    ("en", "sv"): "Helsinki-NLP/opus-mt-en-sv",
+    ("sv", "en"): "Helsinki-NLP/opus-mt-sv-en",
+    ("fr", "sv"): "Helsinki-NLP/opus-mt-fr-sv",
+    ("sv", "fr"): "Helsinki-NLP/opus-mt-sv-fr",
+}
 
 async def broadcast_to_lobby(lobby_id: str, message: dict):
     """Broadcast message to all connected players in a lobby"""

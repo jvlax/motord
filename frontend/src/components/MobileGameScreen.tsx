@@ -9,6 +9,7 @@ interface Player {
   ready: boolean
   joined_at: string
   score?: number
+  streak?: number
 }
 
 interface GameState {
@@ -123,6 +124,147 @@ export const MobileGameScreen: React.FC<MobileGameScreenProps> = ({
       }
       .animate-overtake-slide-down {
         animation: overtake-slide-down 0.6s ease-out;
+      }
+      
+      .animate-word-fly-out {
+        animation: word-fly-out 0.6s ease-in forwards;
+      }
+      
+      @keyframes word-fly-out {
+        0% { 
+          transform: translateX(0);
+          opacity: 1;
+        }
+        100% { 
+          transform: translateX(100%);
+          opacity: 0;
+        }
+      }
+      
+      .animate-word-drop-down {
+        animation: word-drop-down 0.6s ease-out forwards;
+      }
+      
+      @keyframes word-drop-down {
+        0% { 
+          transform: translateY(0);
+          opacity: 1;
+        }
+        100% { 
+          transform: translateY(100%);
+          opacity: 0;
+        }
+      }
+      
+      .animate-drop-in {
+        animation: drop-in 0.6s ease-out forwards;
+      }
+      
+      @keyframes drop-in {
+        0% { 
+          transform: translateY(-50px) scale(0.9);
+        }
+        100% { 
+          transform: translateY(0) scale(1);
+        }
+      }
+      
+      .animate-hidden {
+        animation: hidden 0.3s ease-out forwards;
+      }
+      
+      @keyframes hidden {
+        0% { 
+          opacity: 1;
+          transform: scale(1);
+        }
+        100% { 
+          opacity: 0;
+          transform: scale(0.8);
+        }
+      }
+      
+      .streak-glow {
+        text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        animation: streak-pulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes streak-pulse {
+        0%, 100% { 
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% { 
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+      }
+      
+      .animate-word-fly-out-streak {
+        animation: word-fly-out-streak 0.6s ease-in forwards;
+      }
+      
+      @keyframes word-fly-out-streak {
+        0% { 
+          transform: translateX(0);
+          opacity: 1;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% {
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+        100% { 
+          transform: translateX(100%);
+          opacity: 0;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+      }
+      
+      .animate-word-drop-down-streak {
+        animation: word-drop-down-streak 0.6s ease-out forwards;
+      }
+      
+      @keyframes word-drop-down-streak {
+        0% { 
+          transform: translateY(0);
+          opacity: 1;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% {
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+        100% { 
+          transform: translateY(100%);
+          opacity: 0;
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+      }
+      
+      .animate-drop-in-streak {
+        animation: drop-in-streak 0.6s ease-out forwards;
+      }
+      
+      @keyframes drop-in-streak {
+        0% { 
+          transform: translateY(-50px) scale(0.9);
+          text-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        100% { 
+          transform: translateY(0) scale(1);
+          text-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
+      }
+      
+      .scoreboard-streak-glow {
+        box-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        animation: scoreboard-streak-pulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes scoreboard-streak-pulse {
+        0%, 100% { 
+          box-shadow: 0 0 10px #f59e0b, 0 0 20px #f59e0b, 0 0 30px #f59e0b;
+        }
+        50% { 
+          box-shadow: 0 0 15px #f59e0b, 0 0 25px #f59e0b, 0 0 35px #f59e0b;
+        }
       }
     `
     document.head.appendChild(style)
@@ -273,7 +415,7 @@ export const MobileGameScreen: React.FC<MobileGameScreenProps> = ({
             return (
               <div 
                 key={player.id} 
-                className={`${isOvertaking ? 'animate-overtake-slide-up' : ''} ${isOvertaken ? 'animate-overtake-slide-down' : ''}`}
+                className={`${isOvertaking ? 'animate-overtake-slide-up' : ''} ${isOvertaken ? 'animate-overtake-slide-down' : ''} ${(player.streak || 0) >= 2 ? 'scoreboard-streak-glow' : ''}`}
                 style={{ 
                   display: 'flex', 
                   justifyContent: 'space-between', 
@@ -295,6 +437,11 @@ export const MobileGameScreen: React.FC<MobileGameScreenProps> = ({
               >
                 <span style={{ color: '#fff', fontWeight: 500, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {player.name}
+                  {(player.streak || 0) >= 2 && (
+                    <span style={{ color: '#f59e0b', fontSize: 11, fontWeight: 700 }}>
+                      🔥 {player.streak}
+                    </span>
+                  )}
                 </span>
                 <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{player.score || 0}</span>
               </div>
@@ -333,12 +480,32 @@ export const MobileGameScreen: React.FC<MobileGameScreenProps> = ({
                         : 'text-3xl' 
                       : 'text-6xl md:text-7xl'
                   } ${
-                    gameState.wordAnimation === 'fly-out' ? 'animate-word-fly-out' :
-                    gameState.wordAnimation === 'drop-down' ? 'animate-word-drop-down' :
-                    gameState.wordAnimation === 'drop-in' ? 'animate-drop-in' :
-                    gameState.wordAnimation === 'hidden' ? 'animate-hidden' :
-                    ''
-                  }`}
+                    (() => {
+                      // Check if current player has a streak
+                      const hasStreak = lobby && playerId && (() => {
+                        const currentPlayer = lobby.players.find(p => p.id === playerId)
+                        return (currentPlayer?.streak || 0) >= 2  // Streak starts at 2
+                      })()
+                      
+                      if (gameState.wordAnimation === 'fly-out') {
+                        return hasStreak ? 'animate-word-fly-out-streak' : 'animate-word-fly-out'
+                      } else if (gameState.wordAnimation === 'drop-down') {
+                        return hasStreak ? 'animate-word-drop-down-streak' : 'animate-word-drop-down'
+                      } else if (gameState.wordAnimation === 'drop-in') {
+                        return hasStreak ? 'animate-drop-in-streak' : 'animate-drop-in'
+                      } else if (gameState.wordAnimation === 'hidden') {
+                        return 'animate-hidden'
+                      }
+                      return ''
+                    })()
+                  } ${(() => {
+                    // Apply streak glow only when no animation is running
+                    if (lobby && playerId && gameState.wordAnimation === 'none') {
+                      const currentPlayer = lobby.players.find(p => p.id === playerId)
+                      return (currentPlayer?.streak || 0) >= 2 ? 'streak-glow' : ''  // Streak starts at 2
+                    }
+                    return ''
+                  })()}`}
                   onAnimationEnd={(event) => {
                     const animationName = event.animationName
                     onWordAnimationEnd(animationName)

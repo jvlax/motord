@@ -10,6 +10,9 @@ interface Player {
   ready: boolean
   joined_at: string
   score?: number
+  streak?: number
+  highest_streak?: number
+  fastest_guess?: number
 }
 
 interface Lobby {
@@ -17,7 +20,7 @@ interface Lobby {
   host_id: string
   players: Player[]
   difficulty: number
-  max_score: number
+  max_words: number
   invite_code: string
 }
 
@@ -39,8 +42,8 @@ interface MobileLobbyScreenProps {
   toggleReady: () => void
   selectedDifficulty: number
   updateDifficulty: (difficulty: number) => void
-  selectedMaxScore: number
-  updateMaxScore: (maxScore: number) => void
+  selectedMaxWords: number
+  updateMaxWords: (maxWords: number) => void
   startGame: () => void
   copyInviteLink: () => void
 }
@@ -53,12 +56,12 @@ const difficulties = [
   { value: 4, label: 'Very Hard' }
 ]
 
-const maxScoreOptions = [
-  { value: 5, label: '5 points' },
-  { value: 10, label: '10 points' },
-  { value: 15, label: '15 points' },
-  { value: 20, label: '20 points' },
-  { value: 25, label: '25 points' }
+const maxWordsOptions = [
+  { value: 5, label: '5 words' },
+  { value: 10, label: '10 words' },
+  { value: 15, label: '15 words' },
+  { value: 20, label: '20 words' },
+  { value: 25, label: '25 words' }
 ]
 
 export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
@@ -72,15 +75,15 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
   toggleReady,
   selectedDifficulty,
   updateDifficulty,
-  selectedMaxScore,
-  updateMaxScore,
+  selectedMaxWords,
+  updateMaxWords,
   startGame,
   copyInviteLink
 }) => {
   const { isMobile } = useMobile()
   const [activeTab, setActiveTab] = useState<'chat' | 'players' | 'settings'>('players')
   const [isDifficultyOpen, setIsDifficultyOpen] = useState(false)
-  const [isMaxScoreOpen, setIsMaxScoreOpen] = useState(false)
+  const [isMaxWordsOpen, setIsMaxWordsOpen] = useState(false)
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const amber = '#f59e0b'
@@ -606,13 +609,13 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
                 )}
               </div>
 
-              {/* Max Score Setting */}
+              {/* Max Words Setting */}
               <div>
-                <label style={{ display: 'block', color: '#ffffff', fontWeight: '500', marginBottom: '8px' }}>Max Score</label>
+                <label style={{ display: 'block', color: '#ffffff', fontWeight: '500', marginBottom: '8px' }}>Max Words</label>
                 {isHost ? (
                   <div style={{ position: 'relative' }}>
                     <button
-                      onClick={() => setIsMaxScoreOpen(!isMaxScoreOpen)}
+                      onClick={() => setIsMaxWordsOpen(!isMaxWordsOpen)}
                       style={{
                         width: '100%',
                         backgroundColor: '#1f2937',
@@ -627,12 +630,12 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
                         cursor: 'pointer'
                       }}
                     >
-                      <span>{maxScoreOptions.find(m => m.value === selectedMaxScore)?.label}</span>
+                      <span>{maxWordsOptions.find(m => m.value === selectedMaxWords)?.label}</span>
                       <svg 
                         style={{ 
                           width: '20px', 
                           height: '20px',
-                          transform: isMaxScoreOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transform: isMaxWordsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                           transition: 'transform 0.2s'
                         }} 
                         fill="none" 
@@ -643,7 +646,7 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
                       </svg>
                     </button>
                     
-                    {isMaxScoreOpen && (
+                    {isMaxWordsOpen && (
                       <div style={{
                         position: 'absolute',
                         top: '100%',
@@ -655,12 +658,12 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
                         marginTop: '4px',
                         zIndex: 10
                       }}>
-                        {maxScoreOptions.map((option) => (
+                        {maxWordsOptions.map((option) => (
                           <button
                             key={option.value}
                             onClick={() => {
-                              updateMaxScore(option.value)
-                              setIsMaxScoreOpen(false)
+                              updateMaxWords(option.value)
+                              setIsMaxWordsOpen(false)
                             }}
                             style={{
                               width: '100%',
@@ -670,8 +673,8 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
                               backgroundColor: 'transparent',
                               border: 'none',
                               cursor: 'pointer',
-                              borderRadius: option === maxScoreOptions[0] ? '8px 8px 0 0' : 
-                                          option === maxScoreOptions[maxScoreOptions.length - 1] ? '0 0 8px 8px' : '0'
+                              borderRadius: option === maxWordsOptions[0] ? '8px 8px 0 0' : 
+                                          option === maxWordsOptions[maxWordsOptions.length - 1] ? '0 0 8px 8px' : '0'
                             }}
                             onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#374151'}
                             onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
@@ -691,7 +694,7 @@ export const MobileLobbyScreen: React.FC<MobileLobbyScreenProps> = ({
                     padding: '12px 16px',
                     borderRadius: '8px'
                   }}>
-                    {maxScoreOptions.find(m => m.value === selectedMaxScore)?.label}
+                    {maxWordsOptions.find(m => m.value === selectedMaxWords)?.label}
                   </div>
                 )}
               </div>
