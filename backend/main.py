@@ -10,7 +10,7 @@ import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 import uuid
 import json
@@ -63,6 +63,7 @@ class Lobby(BaseModel):
     max_words: int = 10  # Changed from max_score to max_words
     created_at: datetime
     invite_code: str
+    last_activity: datetime = Field(default_factory=datetime.now)
 
 class GameState(BaseModel):
     current_word: str
@@ -88,6 +89,7 @@ active_connections: Dict[str, List[WebSocket]] = {}
 player_connections: Dict[str, WebSocket] = {}  # Map player_id to WebSocket connection
 player_heartbeats: Dict[str, datetime] = {}  # Track last heartbeat for each player
 game_states: Dict[str, GameState] = {}  # Game state for each lobby
+still_playing_pending: Dict[str, datetime] = {}
 
 # Load word data from merged translated wordlist
 WORDS_DATA = []
@@ -221,6 +223,10 @@ def calculate_total_points(base_points: int, time_bonus: int, streak_multiplier:
     total_before_multiplier = base_points + time_bonus
     return total_before_multiplier * streak_multiplier
 
+def update_lobby_activity(lobby_id: str):
+    if lobby_id in lobbies:
+        lobbies[lobby_id].last_activity = datetime.now()
+
 @app.get("/")
 def root():
     return {"message": "Motord Python Backend"}
@@ -253,6 +259,7 @@ async def create_lobby(player_name: str = Form(...), language: str = Form(...)):
     
     lobbies[lobby_id] = lobby
     active_connections[lobby_id] = []
+    update_lobby_activity(lobby_id)
     
     return {
         "lobby_id": lobby_id,
@@ -324,6 +331,7 @@ async def join_lobby(lobby_id: str, player_name: str = Form(...), language: str 
     )
     
     lobby.players.append(player)
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     print(f"=== BACKEND: PLAYER JOINED ===")
@@ -379,6 +387,7 @@ async def toggle_player_ready(lobby_id: str, player_id: str):
         raise HTTPException(status_code=404, detail="Player not found")
     
     player.ready = not player.ready
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     print(f"=== BACKEND: PLAYER READY CHANGED ===")
@@ -409,6 +418,7 @@ async def update_difficulty(lobby_id: str, player_id: str = Form(...), difficult
         raise HTTPException(status_code=403, detail="Only host can change difficulty")
     
     lobby.difficulty = difficulty
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     await broadcast_to_lobby(lobby_id, {
@@ -433,6 +443,7 @@ async def update_max_words(lobby_id: str, player_id: str = Form(...), max_words:
         raise HTTPException(status_code=400, detail="Max words must be at least 1")
     
     lobby.max_words = max_words
+    update_lobby_activity(lobby_id)
     
     # Notify other players via WebSocket
     await broadcast_to_lobby(lobby_id, {
@@ -485,6 +496,7 @@ async def start_game(lobby_id: str, player_id: str = Form(...)):
     )
     
     game_states[lobby_id] = game_state
+    update_lobby_activity(lobby_id)
     
     # Broadcast game started message
     await broadcast_to_lobby(lobby_id, {
@@ -545,6 +557,7 @@ async def play_again(lobby_id: str, request: Request):
         } for p in lobby.players]
     })
     print(f"[FUSEBAR-BACKEND] Broadcasted play_again for lobby {lobby_id}.")
+    update_lobby_activity(lobby_id)
     
     return {"status": "game_reset"}
 
@@ -739,6 +752,7 @@ async def leave_lobby(lobby_id: str, player_id: str):
     
     # Remove player from lobby
     lobby.players = [p for p in lobby.players if p.id != player_id]
+    update_lobby_activity(lobby_id)
     
     # If no players left, delete the lobby
     if not lobby.players:
@@ -786,6 +800,7 @@ async def handle_timeout(lobby_id: str):
     # Reset all player streaks on timeout
     for player in lobby.players:
         player.streak = 0
+    # update_lobby_activity(lobby_id) # REMOVED
     
     # Get new word
     new_word_data = get_random_word(lobby.difficulty)
@@ -889,6 +904,27 @@ async def cleanup_disconnected_players():
                 "player_name": player.name
             })
         
+        # Inactivity check (set to 5 minutes for production)
+        inactivity_timeout = timedelta(seconds=300)
+        popup_timeout = timedelta(seconds=30)
+        now = datetime.now()
+        if lobby_id in still_playing_pending:
+            # Already waiting for response
+            popup_sent_time = still_playing_pending[lobby_id]
+            if now - popup_sent_time > popup_timeout:
+                print(f"Lobby {lobby_id} inactive for 30s after popup, deleting lobby.")
+                del lobbies[lobby_id]
+                if lobby_id in active_connections:
+                    del active_connections[lobby_id]
+                if lobby_id in game_states:
+                    del game_states[lobby_id]
+                del still_playing_pending[lobby_id]
+            continue
+        if now - lobby.last_activity > inactivity_timeout:
+            print(f"Lobby {lobby_id} inactive for 5 minutes, sending still_playing popup.")
+            await broadcast_to_lobby(lobby_id, {"type": "still_playing", "timeout": 30})
+            still_playing_pending[lobby_id] = now
+
         # Only delete lobby if no players left AND no active connections
         if not lobby.players and (lobby_id not in active_connections or not active_connections[lobby_id]):
             print(f"Deleting empty lobby {lobby_id} (no players and no active connections)")
@@ -921,6 +957,7 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
             
             # Handle different message types
             if message.get("type") == "chat":
+                update_lobby_activity(lobby_id)
                 if lobby_id in lobbies:
                     lobby = lobbies[lobby_id]
                     player = next((p for p in lobby.players if p.id == message.get("player_id")), None)
@@ -958,6 +995,7 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                         
                         # Remove player from lobby
                         lobby.players = [p for p in lobby.players if p.id != player_id]
+                        update_lobby_activity(lobby_id)
                         
                         # Clean up tracking
                         if player_id in player_connections:
@@ -990,6 +1028,15 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                             })
                         
                         print(f"Player {player.name} ({player_id}) left lobby {lobby_id} gracefully")
+                
+            elif message.get("type") == "still_playing_response":
+                # Player clicked yes, reset last_activity and remove pending
+                update_lobby_activity(lobby_id)
+                if lobby_id in still_playing_pending:
+                    del still_playing_pending[lobby_id]
+                print(f"Lobby {lobby_id} received still_playing_response, activity reset.")
+                # Broadcast to all players to clear the popup
+                await broadcast_to_lobby(lobby_id, {"type": "still_playing_cleared"})
                 
     except WebSocketDisconnect:
         print(f"WebSocket disconnected from lobby {lobby_id}")

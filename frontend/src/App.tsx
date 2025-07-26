@@ -602,15 +602,17 @@ function App() {
     if (fuseBarRef.current && fuseBarRef.current.style.transform === 'scaleX(0)') {
       setShowFuseBar(false)
       setGameState(prev => ({ ...prev, wordAnimation: 'drop-down' }))
-      // Call backend timeout endpoint to get a new word
-      fetch(config.api.endpoints.timeout(lobbyId), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        }
-      }).catch(error => {
-        console.error('Error calling timeout endpoint:', error)
-      })
+      // Only call timeout if lobby still exists
+      if (lobbyId && lobby) {
+        fetch(config.api.endpoints.timeout(lobbyId), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          }
+        }).catch(error => {
+          console.error('Error calling timeout endpoint:', error)
+        })
+      }
     }
   }
 
@@ -1093,7 +1095,27 @@ function App() {
             players: lobby.players.filter(p => p.id !== data.player_id)
           })
         }
-        break
+        break;
+      case 'still_playing':
+        setShowStillPlayingPopup(true);
+        setStillPlayingCountdown(data.timeout || 30);
+        if (stillPlayingTimeoutRef.current) clearInterval(stillPlayingTimeoutRef.current);
+        stillPlayingTimeoutRef.current = setInterval(() => {
+          setStillPlayingCountdown(prev => {
+            if (prev <= 1) {
+              clearInterval(stillPlayingTimeoutRef.current!);
+              setShowStillPlayingPopup(false);
+              window.location.href = '/'; // Redirect to main page
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        break;
+      case 'still_playing_cleared':
+        setShowStillPlayingPopup(false);
+        if (stillPlayingTimeoutRef.current) clearInterval(stillPlayingTimeoutRef.current);
+        break;
     }
   }
 
@@ -1557,6 +1579,20 @@ function App() {
     }
   };
 
+  // Add state for still playing popup
+  const [showStillPlayingPopup, setShowStillPlayingPopup] = useState(false);
+  const [stillPlayingCountdown, setStillPlayingCountdown] = useState(30);
+  const stillPlayingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Add handler for 'Yes' button
+  const handleStillPlayingYes = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'still_playing_response', player_id: playerId }));
+    }
+    setShowStillPlayingPopup(false);
+    if (stillPlayingTimeoutRef.current) clearInterval(stillPlayingTimeoutRef.current);
+  };
+
   if (currentPage === 'game') {
     // Use mobile game screen on mobile devices
     if (isMobile) {
@@ -1602,6 +1638,18 @@ function App() {
             dummyWordReady={dummyWordReady}
             skipDummyWord={skipDummyWord}
           />
+          {/* Still Playing Popup */}
+          {showStillPlayingPopup && (
+            <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+              <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+                <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+                <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                  The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+                </p>
+                <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+              </div>
+            </div>
+          )}
         </>
       )
     }
@@ -1798,6 +1846,18 @@ function App() {
             </div>
           </div>
         </div>
+        {/* Still Playing Popup */}
+        {showStillPlayingPopup && (
+          <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+            <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+              <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+              <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+              </p>
+              <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+            </div>
+          </div>
+        )}
       </>
     )
   }
@@ -1806,22 +1866,36 @@ function App() {
     // Use mobile lobby screen on mobile devices
     if (isMobile) {
       return (
-        <MobileLobbyScreen
-          lobby={lobby}
-          playerId={playerId}
-          isHost={isHost}
-          chatMessages={chatMessages}
-          chatMessage={chatMessage}
-          setChatMessage={setChatMessage}
-          sendChatMessage={sendChatMessage}
-          toggleReady={toggleReady}
-          selectedDifficulty={selectedDifficulty}
-          updateDifficulty={updateDifficulty}
-          selectedMaxWords={selectedMaxWords}
-          updateMaxWords={updateMaxWords}
-          startGame={startGame}
-          copyInviteLink={copyInviteLink}
-        />
+        <div>
+          <MobileLobbyScreen
+            lobby={lobby}
+            playerId={playerId}
+            isHost={isHost}
+            chatMessages={chatMessages}
+            chatMessage={chatMessage}
+            setChatMessage={setChatMessage}
+            sendChatMessage={sendChatMessage}
+            toggleReady={toggleReady}
+            selectedDifficulty={selectedDifficulty}
+            updateDifficulty={updateDifficulty}
+            selectedMaxWords={selectedMaxWords}
+            updateMaxWords={updateMaxWords}
+            startGame={startGame}
+            copyInviteLink={copyInviteLink}
+          />
+          {/* Still Playing Popup */}
+          {showStillPlayingPopup && (
+            <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+              <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+                <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+                <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                  The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+                </p>
+                <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+              </div>
+            </div>
+          )}
+        </div>
       )
     }
 
@@ -1984,6 +2058,18 @@ function App() {
             </div>
           </div>
         )}
+        {/* Still Playing Popup */}
+        {showStillPlayingPopup && (
+          <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+            <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+              <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+              <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+              </p>
+              <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -2095,6 +2181,18 @@ function App() {
             )}
           </div>
         </div>
+        {/* Still Playing Popup */}
+        {showStillPlayingPopup && (
+          <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+            <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+              <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+              <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+              </p>
+              <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -2103,14 +2201,28 @@ function App() {
     // Use mobile setup screen on mobile devices
     if (isMobile) {
       return (
-        <MobileSetupScreen
-          playerName={playerName}
-          setPlayerName={setPlayerName}
-          selectedLanguage={selectedLanguage}
-          setSelectedLanguage={setSelectedLanguage}
-          onContinue={() => lobbyId ? joinLobby() : createLobby()}
-          canContinue={!!canContinue}
-        />
+        <div>
+          <MobileSetupScreen
+            playerName={playerName}
+            setPlayerName={setPlayerName}
+            selectedLanguage={selectedLanguage}
+            setSelectedLanguage={setSelectedLanguage}
+            onContinue={() => lobbyId ? joinLobby() : createLobby()}
+            canContinue={!!canContinue}
+          />
+          {/* Still Playing Popup */}
+          {showStillPlayingPopup && (
+            <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+              <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+                <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+                <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                  The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+                </p>
+                <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+              </div>
+            </div>
+          )}
+        </div>
       )
     }
 
@@ -2177,6 +2289,18 @@ function App() {
             </button>
           </div>
         </div>
+        {/* Still Playing Popup */}
+        {showStillPlayingPopup && (
+          <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+            <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+              <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+              <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+              </p>
+              <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -2207,6 +2331,18 @@ function App() {
           </button>
         </div>
       </div>
+      {/* Still Playing Popup */}
+      {showStillPlayingPopup && (
+        <div className="still-playing-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+          <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+            <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Are you still playing?</h2>
+            <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+              The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
+            </p>
+            <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
