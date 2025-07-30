@@ -910,8 +910,8 @@ async def cleanup_disconnected_players():
                 "player_name": player.name
             })
         
-        # Inactivity check (set to 30 seconds for testing)
-        inactivity_timeout = timedelta(seconds=30)
+        # Inactivity check (set to 5 minutes for production)
+        inactivity_timeout = timedelta(seconds=300)
         popup_timeout = timedelta(seconds=30)
         now = datetime.now()
         if lobby_id in still_playing_pending:
