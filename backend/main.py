@@ -87,7 +87,7 @@ class ChatMessage(BaseModel):
 lobbies: Dict[str, Lobby] = {}
 active_connections: Dict[str, List[WebSocket]] = {}
 player_connections: Dict[str, WebSocket] = {}  # Map player_id to WebSocket connection
-player_heartbeats: Dict[str, datetime] = {}  # Track last heartbeat for each player
+
 game_states: Dict[str, GameState] = {}  # Game state for each lobby
 still_playing_pending: Dict[str, datetime] = {}
 
@@ -579,6 +579,8 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     # Update lobby activity when player makes a guess
     update_lobby_activity(lobby_id)
     
+
+    
     game_state = game_states[lobby_id]
     
     # Get the full word data from the loaded wordlist (including alternates)
@@ -882,33 +884,9 @@ async def broadcast_to_lobby(lobby_id: str, message: dict):
     print(f"=== BACKEND: BROADCAST END ===")
 
 async def cleanup_disconnected_players():
-    """Remove players who have been disconnected for too long"""
-    current_time = datetime.now()
-    timeout = timedelta(minutes=5)  # 5 minutes timeout
+    """Clean up inactive lobbies"""
     
     for lobby_id, lobby in list(lobbies.items()):
-        players_to_remove = []
-        for player in lobby.players:
-            if player.id in player_heartbeats:
-                last_heartbeat = player_heartbeats[player.id]
-                if current_time - last_heartbeat > timeout:
-                    players_to_remove.append(player)
-                    print(f"Player {player.name} ({player.id}) timed out in lobby {lobby_id}")
-        
-        # Remove timed out players
-        for player in players_to_remove:
-            lobby.players = [p for p in lobby.players if p.id != player.id]
-            if player.id in player_heartbeats:
-                del player_heartbeats[player.id]
-            if player.id in player_connections:
-                del player_connections[player.id]
-            
-            # Notify other players
-            await broadcast_to_lobby(lobby_id, {
-                "type": "player_left",
-                "player_id": player.id,
-                "player_name": player.name
-            })
         
         # Inactivity check (set to 5 minutes for production)
         inactivity_timeout = timedelta(seconds=300)
@@ -991,7 +969,6 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                 current_player_id = message.get("player_id")
                 if current_player_id:
                     player_connections[current_player_id] = websocket
-                    player_heartbeats[current_player_id] = datetime.now()
                     print(f"Player {current_player_id} connected to lobby {lobby_id}")
             
             elif message.get("type") == "player_leave":
@@ -1010,8 +987,6 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                         # Clean up tracking
                         if player_id in player_connections:
                             del player_connections[player_id]
-                        if player_id in player_heartbeats:
-                            del player_heartbeats[player_id]
                         
                         # Only delete lobby if no players left AND no active connections
                         if not lobby.players and (lobby_id not in active_connections or not active_connections[lobby_id]):
@@ -1060,8 +1035,6 @@ async def websocket_endpoint(websocket: WebSocket, lobby_id: str):
                     if current_player_id:
                         if current_player_id in player_connections:
                             del player_connections[current_player_id]
-                        if current_player_id in player_heartbeats:
-                            del player_heartbeats[current_player_id]
                         print(f"Player {current_player_id} disconnected from lobby {lobby_id}")
                     
                     # If this was the last connection and there are players in the lobby,
