@@ -311,6 +311,7 @@ function App() {
   // WebSocket
   const wsRef = useRef<WebSocket | null>(null)
   const fuseIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const [fuseBarKey, setFuseBarKey] = useState(0)
   const [fuseBarWidth, setFuseBarWidth] = useState('100%')
@@ -365,6 +366,10 @@ function App() {
       if (wsRef.current) {
         wsRef.current.close()
       }
+      // Clear any pending reconnect
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
       // Small delay to ensure clean connection
       setTimeout(() => {
         connectWebSocket()
@@ -373,6 +378,9 @@ function App() {
     return () => {
       if (wsRef.current) {
         wsRef.current.close()
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
       }
     }
   }, [lobbyId, playerId])
@@ -701,6 +709,8 @@ function App() {
 
     ws.onopen = () => {
       console.log('WebSocket connected', 'Player ID:', playerId, 'Is Host:', isHost)
+      // Hide connection lost popup if it was showing
+      setShowConnectionLostPopup(false)
       // Send player identification message
       if (playerId) {
         ws.send(JSON.stringify({
@@ -731,6 +741,17 @@ function App() {
 
     ws.onclose = () => {
       console.log('WebSocket disconnected')
+      // Show connection lost popup
+      setShowConnectionLostPopup(true)
+      // Clear any existing reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
+      // Attempt to reconnect after a short delay
+      reconnectTimeoutRef.current = setTimeout(() => {
+        console.log('Attempting to reconnect WebSocket...')
+        connectWebSocket()
+      }, 2000)
     }
 
     ws.onerror = (error) => {
@@ -1602,6 +1623,7 @@ function App() {
   // Add state for still playing popup
   const [showStillPlayingPopup, setShowStillPlayingPopup] = useState(false);
   const [stillPlayingCountdown, setStillPlayingCountdown] = useState(30);
+  const [showConnectionLostPopup, setShowConnectionLostPopup] = useState(false);
   const stillPlayingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add handler for 'Yes' button
@@ -1667,6 +1689,18 @@ function App() {
                   The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
                 </p>
                 <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+              </div>
+            </div>
+          )}
+          {/* Connection Lost Popup */}
+          {showConnectionLostPopup && (
+            <div className="connection-lost-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+              <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+                <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Connection Lost</h2>
+                <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                  The connection to the game server has been lost. Attempting to reconnect...
+                </p>
+                <button onClick={() => setShowConnectionLostPopup(false)} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>OK</button>
               </div>
             </div>
           )}
@@ -1912,6 +1946,18 @@ function App() {
                   The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
                 </p>
                 <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+              </div>
+            </div>
+          )}
+          {/* Connection Lost Popup */}
+          {showConnectionLostPopup && (
+            <div className="connection-lost-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+              <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+                <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Connection Lost</h2>
+                <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                  The connection to the game server has been lost. Attempting to reconnect...
+                </p>
+                <button onClick={() => setShowConnectionLostPopup(false)} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>OK</button>
               </div>
             </div>
           )}
@@ -2213,6 +2259,18 @@ function App() {
             </div>
           </div>
         )}
+        {/* Connection Lost Popup */}
+        {showConnectionLostPopup && (
+          <div className="connection-lost-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+            <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+              <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Connection Lost</h2>
+              <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                The connection to the game server has been lost. Attempting to reconnect...
+              </p>
+              <button onClick={() => setShowConnectionLostPopup(false)} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>OK</button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -2321,6 +2379,18 @@ function App() {
             </div>
           </div>
         )}
+        {/* Connection Lost Popup */}
+        {showConnectionLostPopup && (
+          <div className="connection-lost-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+            <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+              <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Connection Lost</h2>
+              <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+                The connection to the game server has been lost. Attempting to reconnect...
+              </p>
+              <button onClick={() => setShowConnectionLostPopup(false)} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>OK</button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -2360,6 +2430,18 @@ function App() {
               The game will close in <span style={{fontFamily: 'monospace', minWidth: '2ch', display: 'inline-block'}}>{stillPlayingCountdown}</span> seconds unless you confirm.
             </p>
             <button onClick={handleStillPlayingYes} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>Yes</button>
+          </div>
+        </div>
+      )}
+      {/* Connection Lost Popup */}
+      {showConnectionLostPopup && (
+        <div className="connection-lost-popup" style={{position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999}}>
+          <div className="popup-content" style={{background: '#23232b', color: '#fff', padding: 20, borderRadius: 12, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.2)', maxWidth: '90vw', minWidth: 260, width: 320, fontSize: 16, whiteSpace: 'pre-line'}}>
+            <h2 style={{color: '#fff', fontSize: 22, marginBottom: 14}}>Connection Lost</h2>
+            <p style={{color: '#fff', marginBottom: 20, lineHeight: 1.4}}>
+              The connection to the game server has been lost. Attempting to reconnect...
+            </p>
+            <button onClick={() => setShowConnectionLostPopup(false)} style={{fontSize: 18, padding: '12px 0', borderRadius: 8, background: '#f59e0b', color: '#23232b', border: 'none', cursor: 'pointer', width: '100%', maxWidth: 240, margin: '0 auto', display: 'block'}}>OK</button>
           </div>
         </div>
       )}
