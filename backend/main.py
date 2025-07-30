@@ -576,6 +576,9 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
     
+    # Update lobby activity when player makes a guess
+    update_lobby_activity(lobby_id)
+    
     game_state = game_states[lobby_id]
     
     # Get the full word data from the loaded wordlist (including alternates)
@@ -662,6 +665,9 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
             }
             
             await broadcast_to_lobby(lobby_id, broadcast_message)
+            
+
+            
             return {
                 "correct": True,
                 "score": player.score,
@@ -921,9 +927,13 @@ async def cleanup_disconnected_players():
                 del still_playing_pending[lobby_id]
             continue
         if now - lobby.last_activity > inactivity_timeout:
-            print(f"Lobby {lobby_id} inactive for 5 minutes, sending still_playing popup.")
-            await broadcast_to_lobby(lobby_id, {"type": "still_playing", "timeout": 30})
-            still_playing_pending[lobby_id] = now
+            # Only send still_playing popup if there are active connections to receive it
+            if lobby_id in active_connections and active_connections[lobby_id]:
+                print(f"Lobby {lobby_id} inactive for 5 minutes, sending still_playing popup.")
+                await broadcast_to_lobby(lobby_id, {"type": "still_playing", "timeout": 30})
+                still_playing_pending[lobby_id] = now
+            else:
+                print(f"Lobby {lobby_id} inactive for 5 minutes but no active connections, skipping still_playing popup.")
 
         # Only delete lobby if no players left AND no active connections
         if not lobby.players and (lobby_id not in active_connections or not active_connections[lobby_id]):

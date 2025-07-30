@@ -377,6 +377,24 @@ function App() {
     }
   }, [lobbyId, playerId])
 
+  // Add beforeunload event handler to notify backend when user leaves
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && playerId) {
+        // Send player_leave message before page unloads
+        wsRef.current.send(JSON.stringify({
+          type: 'player_leave',
+          player_id: playerId
+        }))
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [playerId])
+
   // Debug animation state changes
   useEffect(() => {
     console.log('🔄 Animation state changed to:', gameState.wordAnimation)
@@ -1043,6 +1061,8 @@ function App() {
           word_history: data.word_history,
           players: data.players
         })
+        
+
         
         setCurrentPage('game_summary')
         break
