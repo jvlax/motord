@@ -576,6 +576,9 @@ async def check_translation(lobby_id: str, player_id: str, translation: str = Fo
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
     
+    # Update lobby activity when player makes a guess
+    update_lobby_activity(lobby_id)
+    
     game_state = game_states[lobby_id]
     
     # Get the full word data from the loaded wordlist (including alternates)
@@ -907,8 +910,8 @@ async def cleanup_disconnected_players():
                 "player_name": player.name
             })
         
-        # Inactivity check (set to 5 minutes for production)
-        inactivity_timeout = timedelta(seconds=300)
+        # Inactivity check (set to 30 seconds for testing)
+        inactivity_timeout = timedelta(seconds=30)
         popup_timeout = timedelta(seconds=30)
         now = datetime.now()
         if lobby_id in still_playing_pending:
